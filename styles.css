@@ -1,0 +1,29 @@
+#plagiarism_dixeo_grade_analyze_btn img,
+#plagiarism_dixeo_analyze_btn img {
+    display: inline;
+}
+
+/**
+ * Styles for plagiarism_dixeo authorship verification quiz (rendered by authorship::render_quiz_form).
+ *
+ * @package    plagiarism_dixeo
+ */
+.plagiarism-dixeo-badge {
+    color: white;
+}
+
+.authorship-question-text {
+    font-weight: bold;
+}
+
+.authorship-question {
+    margin-bottom: 20px;
+}
+
+.authorship-options {
+    margin-left: 20px;
+}
+
+.authorship-options label {
+    display: block;
+}

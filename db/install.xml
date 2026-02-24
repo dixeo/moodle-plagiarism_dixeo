@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="plagiarism/dixeo/db" VERSION="20250224" COMMENT="XMLDB file for plagiarism_dixeo plugin"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+  <TABLES>
+    <TABLE NAME="plagiarism_dixeo_authorship" COMMENT="Authorship evaluation records (initial + optional verification test)">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="component" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="e.g. mod_assign"/>
+        <FIELD NAME="area" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false" COMMENT="e.g. submission"/>
+        <FIELD NAME="itemid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="area-specific id e.g. assign_submission.id for assign"/>
+        <FIELD NAME="source_timemodified" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="timemodified (or equivalent) of the source record e.g. assign_submission, workshop_submissions, forum_posts.modified, quiz_attempts"/>
+        <FIELD NAME="source_attempt" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="attempt number/index when applicable e.g. assign attemptnumber, quiz_attempts.attempt; null for workshop/forum"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false" COMMENT="pending|complete|verification_required"/>
+        <FIELD NAME="initial_confidence" TYPE="number" LENGTH="5" DECIMALS="2" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="initial_explanation" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="quiz_data" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON"/>
+        <FIELD NAME="quiz_responses" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON"/>
+        <FIELD NAME="response_timings" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON, prepared for later"/>
+        <FIELD NAME="quiz_grade" TYPE="number" LENGTH="5" DECIMALS="2" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="final_confidence" TYPE="number" LENGTH="5" DECIMALS="2" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="final_explanation" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="component_area_itemid" TYPE="unique" FIELDS="component, area, itemid, userid"/>
+      </KEYS>
+    </TABLE>
+    <TABLE NAME="plagiarism_dixeo_config" COMMENT="Per-activity config (e.g. use_dixeo)">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="cm" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 = site defaults"/>
+        <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="value" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+    </TABLE>
+  </TABLES>
+</XMLDB>
