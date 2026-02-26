@@ -175,11 +175,19 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             if ($testvis !== 'hide') {
                 $panelindex++;
                 $gradeval = round((float) $record->quiz_grade, 1);
-                $quizexpl = ($testvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record, 'quiz') : '';
+                $quizbody = '';
+                if ($testvis === 'scoreandfeedback') {
+                    $hasresponses = !empty($record->quiz_responses);
+                    if ($hasresponses) {
+                        $quizbody = \plagiarism_dixeo\local\authorship::render_quiz_results($record, []);
+                    } else {
+                        $quizbody = self::get_record_explanation_for_display($record, 'quiz');
+                    }
+                }
                 $panels[] = self::build_panel_card(
                     get_string('display_test_score', 'plagiarism_dixeo', $gradeval),
                     'bg-primary text-white',
-                    $quizexpl,
+                    $quizbody,
                     'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex,
                     $accordionid
                 );
@@ -229,7 +237,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             $inner = html_writer::div($headercontent, 'card-header ' . $headerclass, $attributes);
             $inner .= html_writer::div(
                 html_writer::div(
-                    html_writer::tag('p', $bodyhtml, ['class' => 'card-text mb-0']),
+                    html_writer::div($bodyhtml, 'card-text mb-0'),
                     'card-body'
                 ),
                 'collapse',
@@ -238,7 +246,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         } else {
             $inner = html_writer::div($headercontent, 'card-header ' . $headerclass);
             if ($hasbody) {
-                $inner .= html_writer::div(html_writer::tag('p', $bodyhtml, ['class' => 'card-text mb-0']), 'card-body');
+                $inner .= html_writer::div(html_writer::div($bodyhtml, 'card-text mb-0'), 'card-body');
             }
         }
 

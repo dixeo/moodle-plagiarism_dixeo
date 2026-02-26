@@ -42,3 +42,53 @@
 .authorship-options label {
     display: block;
 }
+
+/* Locked quiz results (render_quiz_results): option list with radio-style markers. */
+.plagiarism-dixeo-quiz-results .authorship-result-question {
+    margin-bottom: 1.25rem;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-qtext {
+    margin-bottom: 0.5rem;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-options {
+    margin-left: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-option {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    margin-bottom: 0.25rem;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-marker {
+    flex-shrink: 0;
+    font-size: 1.1em;
+    line-height: 1;
+    opacity: 0.85;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-option.authorship-result-selected .authorship-result-marker {
+    opacity: 1;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-status.authorship-result-correct {
+    color: #0d6e0d;
+    font-weight: 600;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-status.authorship-result-incorrect {
+    color: #b52c2c;
+    font-weight: 600;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-open-answer {
+    margin: 0.5rem 0 0.5rem 1rem;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid #6c757d;
+    background: #f8f9fa;
+    font-style: normal;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-feedback {
+    margin-top: 0.35rem;
+    margin-left: 1rem;
+}
+.plagiarism-dixeo-quiz-results .authorship-result-general {
+    border-top: 1px solid #dee2e6;
+    padding-top: 0.75rem;
+}

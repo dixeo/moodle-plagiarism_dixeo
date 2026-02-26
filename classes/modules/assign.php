@@ -949,7 +949,9 @@ EOT;
         $block .= '<p><strong>Initial score:</strong> ' . ($initial !== null ? round($initial, 1) . ' / 100' : '—') . '</p>';
         if ($hasquiz) {
             $block .= '<p><strong>Test score:</strong> ' . ($quizgrade !== null ? round($quizgrade, 1) . ' / 100' : '—') . '</p>';
-            if (!empty($authorship->quiz_explanation)) {
+            if (!empty($authorship->quiz_responses)) {
+                $block .= \plagiarism_dixeo\local\authorship::render_quiz_results($authorship, []);
+            } elseif (!empty($authorship->quiz_explanation)) {
                 $block .= '<p><strong>Test explanation:</strong> ' . s(trim($authorship->quiz_explanation)) . '</p>';
             }
             $block .= '<p><strong>Final score:</strong> ' . ($final !== null ? round($final, 1) . ' / 100' : '—') . '</p>';

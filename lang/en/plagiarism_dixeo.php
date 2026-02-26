@@ -94,6 +94,10 @@ $string['authorship_count_open_help'] = 'How many open (free text) questions to 
 $string['assign_file_not_indexed'] = 'The uploaded file(s) could not be indexed for analysis (the service may not support this file type or the file may be unreadable). Please try a different file or format.';
 $string['true'] = 'True';
 $string['false'] = 'False';
+$string['answer_correct'] = 'Correct';
+$string['answer_incorrect'] = 'Incorrect';
+$string['test_results_general'] = 'General feedback';
+$string['back_to_assignment'] = 'Back to assignment';
 $string['authorship_submit_quiz'] = 'Submit verification';
 
 // Assign module (pre-submission, grading).

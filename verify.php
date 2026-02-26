@@ -41,6 +41,20 @@ $record = \plagiarism_dixeo\local\author_storage::get_record($recordid);
 if (!$record || (int) $record->userid !== (int) $USER->id) {
     throw new \moodle_exception('invalidrecord', 'plagiarism_dixeo');
 }
+$viewresults = optional_param('view', '', PARAM_ALPHA) === 'results';
+if ($viewresults && $record->quiz_grade !== null) {
+    // Show locked results view and back link (no form).
+    $PAGE->set_heading($course->fullname);
+    $resultshtml = \plagiarism_dixeo\local\authorship::render_quiz_results($record, []);
+    $backurl = new moodle_url('/mod/assign/view.php', ['id' => $cmid]);
+    $backlink = \html_writer::link($backurl, get_string('back_to_assignment', 'plagiarism_dixeo'), ['class' => 'btn btn-secondary']);
+    echo $OUTPUT->header();
+    echo $OUTPUT->notification(get_string('verification_complete', 'plagiarism_dixeo'), \core\output\notification::NOTIFY_SUCCESS);
+    echo $resultshtml;
+    echo \html_writer::div($backlink, 'mt-3');
+    echo $OUTPUT->footer();
+    exit;
+}
 if ($record->status !== \plagiarism_dixeo\local\author_storage::STATUS_VERIFICATION_REQUIRED) {
     redirect(new moodle_url('/mod/assign/view.php', ['id' => $cmid]));
 }
@@ -66,13 +80,14 @@ if ($isformsubmit) {
         'final_confidence' => $result['final_confidence'],
         'quiz_grade' => $result['quiz_grade'],
         'quiz_explanation' => $result['quiz_explanation'] ?? '',
+        'quiz_question_feedbacks' => $result['quiz_question_feedbacks'] ?? [],
         'final_explanation' => $result['final_explanation'] ?? '',
     ]);
-    redirect(new moodle_url('/mod/assign/view.php', ['id' => $cmid]),
-        get_string('verification_complete', 'plagiarism_dixeo'),
-        null,
-        \core\output\notification::NOTIFY_SUCCESS
-    );
+    redirect(new moodle_url('/plagiarism/dixeo/verify.php', [
+        'recordid' => $recordid,
+        'cmid' => $cmid,
+        'view' => 'results',
+    ]), null, null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 $quizhtml = \plagiarism_dixeo\local\authorship::render_quiz_form($record, [

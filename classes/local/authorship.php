@@ -115,21 +115,23 @@ Questions must be grounded only in the actual content of the document—specific
 Each question must have a unique "id" (e.g. "q0", "q1", "q2"). For objective grading you must include the correct answer: for true_false use key "correct" (1 = true, 0 = false); for multiple_choice use key "correct" with the exact "value" of the correct option. Do not include "correct" for open questions. Respond with a JSON object: { "questions": [ ... ] }. Use only the keys id, type, text, options (for multiple_choice only), and correct (for true_false and multiple_choice).
 EOT;
 
-    /** Prompt: evaluate quiz answers to produce grade with quiz_explanation, and final_confidence with final_explanation. */
+    /** Prompt: evaluate quiz answers to produce grade, per-question feedback, general conclusion, and final_confidence. */
     private const PROMPT_FINAL_CONFIDENCE = <<<EOT
 You are evaluating a verification quiz for authorship. You have: (1) initial confidence score (0–100, human vs AI from reading the content), (2) the verification questions (some include a "correct" key), and (3) the respondent's answers.
 
-Do four things. Each explanation must be unique, specific to the data, and required (no placeholders).
+Do five things. Each explanation must be unique, specific to the data, and required (no placeholders).
 
 (A) Calculate an objective "grade" (0–100). For each question: true_false and multiple_choice are correct only if the answer matches "correct"; for open-ended questions, count correct only if the response is plausible, specific, and shows knowledge a real author would have. Then grade = (correct_count / total_questions) * 100. If there are no questions, set grade to null.
 
-(B) Set "quiz_explanation" (string): explain why the test was graded that way. Focus only on the quiz responses: which answers were right or wrong and why. Do not discuss authorship or confidence; only the correctness of answers and how that produced the grade. Be specific (e.g. "Question q0 was correct because...; q1 was incorrect because...").
+(B) Set "question_feedbacks" (array of strings): one entry per question, in the same order as the questions array. Each entry must be exactly one short line (one sentence) explaining that question's answer—whether it was correct or not and why. Do not discuss authorship or confidence; only the correctness and brief reason (e.g. "Correct: the text states this." or "Incorrect: the correct answer is X because...").
 
-(C) Set "final_confidence" (0–100): analyze how well the answers align with what the actual author would know; your final confidence can be higher or lower than the initial score.
+(C) Set "quiz_explanation" (string): a short general conclusion for the whole test (2–4 sentences). Summarise how the test was graded and what it shows about the answers overall. Do not repeat per-question detail; keep it as a single concluding paragraph.
 
-(D) Set "final_explanation" (string): analyze how the initial confidence and the test results together affected the final score. Explain why and how the initial score and the quiz outcome led to this final confidence (e.g. "The initial score suggested X; the test responses showed Y; therefore the final confidence is Z because...").
+(D) Set "final_confidence" (0–100): analyze how well the answers align with what the actual author would know; your final confidence can be higher or lower than the initial score.
 
-Respond with a JSON object: { "grade": number or null, "quiz_explanation": string, "final_confidence": number, "final_explanation": string }.
+(E) Set "final_explanation" (string): analyze how the initial confidence and the test results together affected the final score. Explain why and how the initial score and the quiz outcome led to this final confidence (e.g. "The initial score suggested X; the test responses showed Y; therefore the final confidence is Z because...").
+
+Respond with a JSON object: { "grade": number or null, "question_feedbacks": [ "line for q0", "line for q1", ... ], "quiz_explanation": string, "final_confidence": number, "final_explanation": string }.
 EOT;
 
     /**
@@ -825,6 +827,131 @@ EOT;
     }
 
     /**
+     * Render locked, non-interactive test results: questions, user answers (Correct/Incorrect), per-question AI feedback, general conclusion.
+     *
+     * Rendering is done on the PHP backend. Expects record with quiz_data, quiz_responses, quiz_question_feedbacks (JSON array), quiz_explanation.
+     *
+     * @param \stdClass $record Authorship record with quiz_data, quiz_responses, quiz_question_feedbacks, quiz_explanation.
+     * @param array $options Optional css_class.
+     * @return string HTML fragment (no form, no inputs).
+     */
+    public static function render_quiz_results(\stdClass $record, array $options = []): string {
+        $cssclass = $options['css_class'] ?? 'plagiarism-dixeo-quiz-results';
+        $quiz = is_string($record->quiz_data ?? '') ? json_decode($record->quiz_data, true) : ($record->quiz_data ?? []);
+        $questions = $quiz['questions'] ?? [];
+        $responses = is_string($record->quiz_responses ?? '') ? json_decode($record->quiz_responses, true) : ($record->quiz_responses ?? []);
+        if (!is_array($responses)) {
+            $responses = [];
+        }
+        $feedbacks = is_string($record->quiz_question_feedbacks ?? '') ? json_decode($record->quiz_question_feedbacks, true) : ($record->quiz_question_feedbacks ?? []);
+        if (!is_array($feedbacks)) {
+            $feedbacks = [];
+        }
+        $general = trim((string) ($record->quiz_explanation ?? ''));
+
+        $html = ['<div class="' . s($cssclass) . '" aria-readonly="true">'];
+        foreach ($questions as $index => $q) {
+            $num = $index + 1;
+            $id = $q['id'] ?? ('q' . $index);
+            $type = $q['type'] ?? self::QUESTION_TYPE_OPEN;
+            $text = $q['text'] ?? '';
+            $userraw = $responses[$id] ?? $responses[(string) $id] ?? null;
+            $correctkey = $q['correct'] ?? null;
+            $isright = null;
+            $displaylabel = null;
+            if ($type === self::QUESTION_TYPE_TRUE_FALSE && $correctkey !== null) {
+                $normalized = $userraw === true || $userraw === 1 || $userraw === '1' ? 1 : 0;
+                $isright = ($normalized === (int) $correctkey);
+                $displaylabel = $normalized ? get_string('true', 'plagiarism_dixeo') : get_string('false', 'plagiarism_dixeo');
+            } elseif ($type === self::QUESTION_TYPE_MULTIPLE_CHOICE && isset($q['options'])) {
+                $opts = $q['options'];
+                $userval = (string) $userraw;
+                $isright = ($correctkey !== null && $userval === (string) $correctkey);
+                foreach ($opts as $opt) {
+                    $optval = is_array($opt) ? ($opt['value'] ?? $opt['text'] ?? '') : $opt;
+                    if ((string) $optval === $userval) {
+                        $displaylabel = is_array($opt) ? ($opt['text'] ?? (string) $optval) : (string) $opt;
+                        break;
+                    }
+                }
+                if ($displaylabel === null) {
+                    $displaylabel = $userval;
+                }
+            }
+            if ($displaylabel !== null && $isright !== null) {
+                $suffix = $isright ? get_string('answer_correct', 'plagiarism_dixeo') : get_string('answer_incorrect', 'plagiarism_dixeo');
+                $displaylabel = $displaylabel . ' (' . $suffix . ')';
+            }
+
+            $html[] = '<div class="authorship-result-question authorship-question-' . s($type) . '" data-question-id="' . s($id) . '">';
+            $html[] = '<p class="authorship-result-qtext"><strong>' . $num . '.</strong> ' . s($text) . '</p>';
+
+            if ($type === self::QUESTION_TYPE_TRUE_FALSE) {
+                $html[] = '<ul class="authorship-result-options list-unstyled" role="list" aria-label="' . s(get_string('true', 'plagiarism_dixeo') . ' / ' . get_string('false', 'plagiarism_dixeo')) . '">';
+                foreach ([[1, get_string('true', 'plagiarism_dixeo')], [0, get_string('false', 'plagiarism_dixeo')]] as $pair) {
+                    $val = $pair[0];
+                    $label = $pair[1];
+                    $checked = ($userraw !== null && ($userraw === $val || $userraw === (string) $val));
+                    $statusclass = '';
+                    $statuslabel = '';
+                    if ($checked && $isright !== null) {
+                        $statusclass = $isright ? 'authorship-result-correct' : 'authorship-result-incorrect';
+                        $statuslabel = $isright ? get_string('answer_correct', 'plagiarism_dixeo') : get_string('answer_incorrect', 'plagiarism_dixeo');
+                    }
+                    $html[] = '<li class="authorship-result-option' . ($checked ? ' authorship-result-selected' : '') . '">';
+                    $html[] = '<span class="authorship-result-marker" aria-hidden="true">' . ($checked ? '&#9679;' : '&#9675;') . '</span>';
+                    $html[] = '<span class="authorship-result-label">' . s($label) . '</span>';
+                    if ($statuslabel !== '') {
+                        $html[] = ' <span class="authorship-result-status ' . s($statusclass) . '">(' . s($statuslabel) . ')</span>';
+                    }
+                    $html[] = '</li>';
+                }
+                $html[] = '</ul>';
+            } elseif ($type === self::QUESTION_TYPE_MULTIPLE_CHOICE) {
+                $opts = $q['options'] ?? [];
+                $html[] = '<ul class="authorship-result-options list-unstyled" role="list">';
+                foreach ($opts as $opt) {
+                    $optval = is_array($opt) ? ($opt['value'] ?? $opt['text'] ?? '') : $opt;
+                    $opttext = is_array($opt) ? ($opt['text'] ?? (string) $optval) : (string) $opt;
+                    $checked = ($userraw !== null && (string) $userraw === (string) $optval);
+                    $statusclass = '';
+                    $statuslabel = '';
+                    if ($checked && $isright !== null) {
+                        $statusclass = $isright ? 'authorship-result-correct' : 'authorship-result-incorrect';
+                        $statuslabel = $isright ? get_string('answer_correct', 'plagiarism_dixeo') : get_string('answer_incorrect', 'plagiarism_dixeo');
+                    }
+                    $html[] = '<li class="authorship-result-option' . ($checked ? ' authorship-result-selected' : '') . '">';
+                    $html[] = '<span class="authorship-result-marker" aria-hidden="true">' . ($checked ? '&#9679;' : '&#9675;') . '</span>';
+                    $html[] = '<span class="authorship-result-label">' . s($opttext) . '</span>';
+                    if ($statuslabel !== '') {
+                        $html[] = ' <span class="authorship-result-status ' . s($statusclass) . '">(' . s($statuslabel) . ')</span>';
+                    }
+                    $html[] = '</li>';
+                }
+                $html[] = '</ul>';
+            } else {
+                $usertext = $userraw !== null && $userraw !== '' ? trim((string) $userraw) : '';
+                $html[] = '<blockquote class="authorship-result-open-answer">' . ($usertext !== '' ? nl2br(s($usertext)) : '—') . '</blockquote>';
+            }
+
+            $feedbackline = isset($feedbacks[$index]) ? trim((string) $feedbacks[$index]) : '';
+            if ($feedbackline !== '') {
+                $html[] = '<p class="authorship-result-feedback text-muted small">' . s($feedbackline) . '</p>';
+            }
+            $html[] = '</div>';
+        }
+
+        if ($general !== '') {
+            $html[] = '<div class="authorship-result-general mt-3">';
+            $html[] = '<p class="font-weight-bold">' . get_string('test_results_general', 'plagiarism_dixeo') . '</p>';
+            $html[] = '<p class="card-text">' . s($general) . '</p>';
+            $html[] = '</div>';
+        }
+        $html[] = '</div>';
+        return implode("\n", $html);
+    }
+
+    /**
      * Compute objective grade (0–100) from correct answers for true_false and multiple_choice only.
      *
      * @param object $record Authorship record with quiz_data (questions may have "correct" key).
@@ -876,12 +1003,13 @@ EOT;
         $structure = [
             'type'       => 'object',
             'properties' => [
-                'grade'             => ['type' => ['number', 'null']],
-                'quiz_explanation'  => ['type' => 'string'],
-                'final_confidence'  => ['type' => 'number'],
-                'final_explanation' => ['type' => 'string'],
+                'grade'               => ['type' => ['number', 'null']],
+                'question_feedbacks'   => ['type' => 'array', 'items' => ['type' => 'string']],
+                'quiz_explanation'    => ['type' => 'string'],
+                'final_confidence'    => ['type' => 'number'],
+                'final_explanation'   => ['type' => 'string'],
             ],
-            'required'   => ['grade', 'quiz_explanation', 'final_confidence', 'final_explanation'],
+            'required'   => ['grade', 'question_feedbacks', 'quiz_explanation', 'final_confidence', 'final_explanation'],
         ];
         $quiz = is_string($record->quiz_data ?? '') ? json_decode($record->quiz_data, true) : ($record->quiz_data ?? []);
         $questions = $quiz['questions'] ?? [];
@@ -899,12 +1027,19 @@ EOT;
             null
         );
         $fallback = (float) ($record->initial_confidence ?? 0);
+        $questionfeedbacks = [];
+        if (!empty($result->data['question_feedbacks']) && is_array($result->data['question_feedbacks'])) {
+            foreach ($result->data['question_feedbacks'] as $line) {
+                $questionfeedbacks[] = trim((string) $line);
+            }
+        }
         if (!$result->success || !isset($result->data['final_confidence'])) {
             return [
-                'grade'             => self::compute_quiz_grade($record, $responses),
-                'quiz_explanation'   => '',
-                'final_confidence'  => $fallback,
-                'final_explanation' => '',
+                'grade'                   => self::compute_quiz_grade($record, $responses),
+                'question_feedbacks'      => $questionfeedbacks,
+                'quiz_explanation'        => '',
+                'final_confidence'        => $fallback,
+                'final_explanation'       => '',
             ];
         }
         $score = (float) $result->data['final_confidence'];
@@ -921,10 +1056,11 @@ EOT;
             ? trim((string) $result->data['final_explanation'])
             : '';
         return [
-            'grade'             => $grade,
-            'quiz_explanation'  => $quizexplanation,
-            'final_confidence'  => $finalconfidence,
-            'final_explanation' => $finalexplanation,
+            'grade'                 => $grade,
+            'question_feedbacks'    => $questionfeedbacks,
+            'quiz_explanation'      => $quizexplanation,
+            'final_confidence'      => $finalconfidence,
+            'final_explanation'     => $finalexplanation,
         ];
     }
 
@@ -934,7 +1070,7 @@ EOT;
      * @param string|array $quizdata JSON string or decoded quiz_data array
      * @param array $responses Question id => answer
      * @param float|null $initialconfidence Initial confidence (0–100)
-     * @return array{final_confidence: float, quiz_grade: float|null, quiz_explanation: string, final_explanation: string}
+     * @return array{final_confidence: float, quiz_grade: float|null, quiz_explanation: string, quiz_question_feedbacks: array, final_explanation: string}
      */
     public static function evaluate_verify($quizdata, array $responses, ?float $initialconfidence = null): array {
         $record = (object) [
@@ -944,10 +1080,12 @@ EOT;
         $evaluation = self::evaluate_final_confidence($record, $responses);
         $grade = $evaluation['grade'] ?? self::compute_quiz_grade($record, $responses);
         return [
-            'final_confidence'  => (float) $evaluation['final_confidence'],
-            'quiz_grade'        => $grade,
-            'quiz_explanation'  => (string) ($evaluation['quiz_explanation'] ?? ''),
-            'final_explanation' => (string) ($evaluation['final_explanation'] ?? ''),
+            'final_confidence'         => (float) $evaluation['final_confidence'],
+            'quiz_grade'                => $grade,
+            'quiz_explanation'          => (string) ($evaluation['quiz_explanation'] ?? ''),
+            'quiz_question_feedbacks'   => isset($evaluation['question_feedbacks']) && is_array($evaluation['question_feedbacks'])
+                ? $evaluation['question_feedbacks'] : [],
+            'final_explanation'         => (string) ($evaluation['final_explanation'] ?? ''),
         ];
     }
 }

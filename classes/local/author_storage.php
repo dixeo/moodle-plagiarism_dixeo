@@ -71,6 +71,7 @@ class author_storage {
             'response_timings' => null,
             'quiz_grade' => null,
             'quiz_explanation' => null,
+            'quiz_question_feedbacks' => null,
             'final_confidence' => null,
             'final_explanation' => null,
             'timecreated' => $now,
@@ -176,6 +177,10 @@ class author_storage {
         }
         if (isset($data['quiz_explanation'])) {
             $record->quiz_explanation = $data['quiz_explanation'];
+        }
+        if (isset($data['quiz_question_feedbacks'])) {
+            $record->quiz_question_feedbacks = is_array($data['quiz_question_feedbacks'])
+                ? json_encode($data['quiz_question_feedbacks']) : (string) $data['quiz_question_feedbacks'];
         }
         if (isset($data['final_explanation'])) {
             $record->final_explanation = $data['final_explanation'];

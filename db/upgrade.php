@@ -42,5 +42,14 @@ function xmldb_plagiarism_dixeo_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2025022701, 'plagiarism', 'dixeo');
     }
 
+    if ($oldversion < 2026022601) {
+        $table = new xmldb_table('plagiarism_dixeo_authorship');
+        $field = new xmldb_field('quiz_question_feedbacks', XMLDB_TYPE_TEXT, null, null, null, null, null, 'quiz_explanation');
+        if (!$DB->get_manager()->field_exists($table, $field)) {
+            $DB->get_manager()->add_field($table, $field);
+        }
+        upgrade_plugin_savepoint(true, 2026022601, 'plagiarism', 'dixeo');
+    }
+
     return true;
 }
