@@ -112,9 +112,15 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
      * @return string HTML fragment.
      */
     protected static function get_links_badges_html(\stdClass $record, int $cmid, array $config): string {
-        $initialvis = $config['show_initial_score'] ?? $config['show_score_to_student'] ?? 'score';
-        $testvis = $config['show_test_score'] ?? $config['show_test_results_to_student'] ?? 'score';
-        $finalvis = $config['show_final_score'] ?? $config['show_score_to_student'] ?? 'score';
+        $context = \context_module::instance($cmid);
+        $isteacher = has_capability('mod/assign:grade', $context);
+        if ($isteacher) {
+            $initialvis = $testvis = $finalvis = 'scoreandfeedback';
+        } else {
+            $initialvis = $config['show_initial_score'] ?? $config['show_score_to_student'] ?? 'score';
+            $testvis = $config['show_test_score'] ?? $config['show_test_results_to_student'] ?? 'score';
+            $finalvis = $config['show_final_score'] ?? $config['show_score_to_student'] ?? 'score';
+        }
         $containerclass = 'plagiarism-dixeo-panels mt-2';
 
         if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_PENDING) {
