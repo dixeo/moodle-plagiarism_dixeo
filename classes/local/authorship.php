@@ -74,7 +74,7 @@ Consider style, consistency, typical AI patterns, and authenticity of voice.
 
 Respond with a JSON object with two keys:
 - "confidence" (number between 0 and 100): the score.
-- "explanation" (string): a short explanation of your reasoning for this score (what in the text led you to it, in 1–3 sentences).
+- "explanation" (string): a unique, specific explanation of your reasoning for this score (what in the text led you to it, in 1–3 sentences). Required; do not use placeholders or generic text.
 EOT;
 
     /** Prompt when document is in file_search: you must use the tool to read it before scoring. */
@@ -88,7 +88,7 @@ Consider style, consistency, typical AI patterns, and authenticity of voice.
 
 Respond with a JSON object with two keys:
 - "confidence" (number between 0 and 100): the score.
-- "explanation" (string): a short explanation of your reasoning for this score (what in the document led you to it, in 1–3 sentences).
+- "explanation" (string): a unique, specific explanation of your reasoning for this score (what in the document led you to it, in 1–3 sentences). Required; do not use placeholders or generic text.
 EOT;
 
     /** Prompt template: generate verification questions (placeholders {counts} and {requirements}). */
@@ -115,20 +115,21 @@ Questions must be grounded only in the actual content of the document—specific
 Each question must have a unique "id" (e.g. "q0", "q1", "q2"). For objective grading you must include the correct answer: for true_false use key "correct" (1 = true, 0 = false); for multiple_choice use key "correct" with the exact "value" of the correct option. Do not include "correct" for open questions. Respond with a JSON object: { "questions": [ ... ] }. Use only the keys id, type, text, options (for multiple_choice only), and correct (for true_false and multiple_choice).
 EOT;
 
-    /** Prompt: evaluate quiz answers to produce final ownership confidence, grade, and explanation. */
+    /** Prompt: evaluate quiz answers to produce grade with quiz_explanation, and final_confidence with final_explanation. */
     private const PROMPT_FINAL_CONFIDENCE = <<<EOT
-You are evaluating whether a person is the true author of a text. You have: (1) an initial confidence score (0–100, human vs AI), (2) the verification questions (some include a "correct" key for the right answer), and (3) the respondent's answers. Do three things:
+You are evaluating a verification quiz for authorship. You have: (1) initial confidence score (0–100, human vs AI from reading the content), (2) the verification questions (some include a "correct" key), and (3) the respondent's answers.
 
-(A) Set "final_confidence" (0–100): analyze how well the answers align with what the actual author would know; your final confidence can be higher or lower than the initial score.
+Do four things. Each explanation must be unique, specific to the data, and required (no placeholders).
 
-(B) Calculate an objective "grade" (0–100). Count every question (including open-ended) as correct or incorrect:
-- For questions that have a "correct" key (true_false and multiple_choice): the answer is correct only if it matches "correct"; otherwise incorrect.
-- For open-ended questions (no "correct" key): analyze the answer. Count it as correct only if the response is plausible, specific, and shows knowledge or reasoning that the real author of the text would have (e.g. references details from the text, explains intent or context convincingly). Count it as incorrect if the answer is vague, generic, off-topic, wrong about the text, or could have been given by someone who did not write it. Do not assume open-ended answers are correct; evaluate each one and mark correct only when it genuinely supports authorship.
-Then: grade = (correct_count / total_questions) * 100. If there are no questions, set grade to null.
+(A) Calculate an objective "grade" (0–100). For each question: true_false and multiple_choice are correct only if the answer matches "correct"; for open-ended questions, count correct only if the response is plausible, specific, and shows knowledge a real author would have. Then grade = (correct_count / total_questions) * 100. If there are no questions, set grade to null.
 
-(C) Set "final_explanation" (string): a short explanation of how the verification test affected your final confidence (e.g. which answers supported or undermined authorship, in 1–3 sentences).
+(B) Set "quiz_explanation" (string): explain why the test was graded that way. Focus only on the quiz responses: which answers were right or wrong and why. Do not discuss authorship or confidence; only the correctness of answers and how that produced the grade. Be specific (e.g. "Question q0 was correct because...; q1 was incorrect because...").
 
-Respond with a JSON object: { "final_confidence": number, "grade": number or null, "final_explanation": string }.
+(C) Set "final_confidence" (0–100): analyze how well the answers align with what the actual author would know; your final confidence can be higher or lower than the initial score.
+
+(D) Set "final_explanation" (string): analyze how the initial confidence and the test results together affected the final score. Explain why and how the initial score and the quiz outcome led to this final confidence (e.g. "The initial score suggested X; the test responses showed Y; therefore the final confidence is Z because...").
+
+Respond with a JSON object: { "grade": number or null, "quiz_explanation": string, "final_confidence": number, "final_explanation": string }.
 EOT;
 
     /**
@@ -875,11 +876,12 @@ EOT;
         $structure = [
             'type'       => 'object',
             'properties' => [
-                'final_confidence' => ['type' => 'number'],
-                'grade'            => ['type' => ['number', 'null']],
+                'grade'             => ['type' => ['number', 'null']],
+                'quiz_explanation'  => ['type' => 'string'],
+                'final_confidence'  => ['type' => 'number'],
                 'final_explanation' => ['type' => 'string'],
             ],
-            'required'   => ['final_confidence', 'final_explanation'],
+            'required'   => ['grade', 'quiz_explanation', 'final_confidence', 'final_explanation'],
         ];
         $quiz = is_string($record->quiz_data ?? '') ? json_decode($record->quiz_data, true) : ($record->quiz_data ?? []);
         $questions = $quiz['questions'] ?? [];
@@ -899,8 +901,9 @@ EOT;
         $fallback = (float) ($record->initial_confidence ?? 0);
         if (!$result->success || !isset($result->data['final_confidence'])) {
             return [
-                'final_confidence'  => $fallback,
                 'grade'             => self::compute_quiz_grade($record, $responses),
+                'quiz_explanation'   => '',
+                'final_confidence'  => $fallback,
                 'final_explanation' => '',
             ];
         }
@@ -911,12 +914,16 @@ EOT;
             $g = (float) $result->data['grade'];
             $grade = max(0, min(100, round($g, 2)));
         }
+        $quizexplanation = isset($result->data['quiz_explanation'])
+            ? trim((string) $result->data['quiz_explanation'])
+            : '';
         $finalexplanation = isset($result->data['final_explanation'])
             ? trim((string) $result->data['final_explanation'])
             : '';
         return [
-            'final_confidence'  => $finalconfidence,
             'grade'             => $grade,
+            'quiz_explanation'  => $quizexplanation,
+            'final_confidence'  => $finalconfidence,
             'final_explanation' => $finalexplanation,
         ];
     }
@@ -927,7 +934,7 @@ EOT;
      * @param string|array $quizdata JSON string or decoded quiz_data array
      * @param array $responses Question id => answer
      * @param float|null $initialconfidence Initial confidence (0–100)
-     * @return array{final_confidence: float, quiz_grade: float|null, final_explanation: string}
+     * @return array{final_confidence: float, quiz_grade: float|null, quiz_explanation: string, final_explanation: string}
      */
     public static function evaluate_verify($quizdata, array $responses, ?float $initialconfidence = null): array {
         $record = (object) [
@@ -939,6 +946,7 @@ EOT;
         return [
             'final_confidence'  => (float) $evaluation['final_confidence'],
             'quiz_grade'        => $grade,
+            'quiz_explanation'  => (string) ($evaluation['quiz_explanation'] ?? ''),
             'final_explanation' => (string) ($evaluation['final_explanation'] ?? ''),
         ];
     }

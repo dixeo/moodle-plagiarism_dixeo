@@ -101,22 +101,26 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     }
 
     /**
-     * Build badge HTML for a single authorship record (pending, verification required, or complete).
+     * Build panel HTML for a single authorship record (pending, verification required, or complete).
+     *
+     * When no quiz was generated: only Final score panel (final_confidence + final_explanation per config).
+     * When quiz exists: up to 3 independent panels (Initial score, Test score, Final score) per config.
      *
      * @param \stdClass $record Authorship record.
      * @param int $cmid Course module id (for verify link).
-     * @param array $config Activity config (show_score_to_student, show_test_results_to_student).
+     * @param array $config Activity config (show_initial_score, show_test_score, show_final_score).
      * @return string HTML fragment.
      */
     protected static function get_links_badges_html(\stdClass $record, int $cmid, array $config): string {
-        $scorevis = $config['show_score_to_student'] ?? 'score';
-        $testvis = $config['show_test_results_to_student'] ?? 'score';
+        $initialvis = $config['show_initial_score'] ?? $config['show_score_to_student'] ?? 'score';
+        $testvis = $config['show_test_score'] ?? $config['show_test_results_to_student'] ?? 'score';
+        $finalvis = $config['show_final_score'] ?? $config['show_score_to_student'] ?? 'score';
         $containerclass = 'plagiarism-dixeo-panels mt-2';
 
         if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_PENDING) {
             $label = get_string('status_pending_badge', 'plagiarism_dixeo');
             return html_writer::div(
-                self::build_panel_card($label, 'bg-warning text-dark', ''),
+                self::build_panel_card($label, 'bg-warning text-dark', '', '', ''),
                 $containerclass
             );
         }
@@ -126,7 +130,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             $label = get_string('verification_required_badge', 'plagiarism_dixeo');
             $headercontent = html_writer::link($url, $label, ['class' => 'text-white text-decoration-none']);
             return html_writer::div(
-                self::build_panel_card($headercontent, 'bg-primary text-white', ''),
+                self::build_panel_card($headercontent, 'bg-warning text-white', '', '', ''),
                 $containerclass
             );
         }
@@ -136,93 +140,126 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         }
 
         $panels = [];
-        $hasconfidence = $record->final_confidence !== null || $record->initial_confidence !== null;
-        $score = $record->final_confidence !== null
-            ? round((float) $record->final_confidence, 1)
-            : ($record->initial_confidence !== null ? round((float) $record->initial_confidence, 1) : null);
-        $scoreexplanation = ($scorevis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record) : '';
+        $panelindex = 0;
+        $accordionid = 'plagiarism-dixeo-accordion-' . (int) $record->id;
+        $hasquiz = $record->quiz_grade !== null;
 
-        if ($record->quiz_grade === null && $hasconfidence) {
-            if ($scorevis === 'hide') {
-                $panels[] = self::build_panel_card(
-                    get_string('ready_for_submission_badge_plain', 'plagiarism_dixeo'),
-                    'bg-success text-white',
-                    ''
-                );
-            } else {
-                $panels[] = self::build_panel_card(
-                    get_string('ready_for_submission_badge', 'plagiarism_dixeo', $score ?? 0),
-                    'bg-success text-white',
-                    $scoreexplanation
-                );
+        if (!$hasquiz) {
+            // No test generated: show only Final score and explanation (no accordion, single panel).
+            $finalval = $record->final_confidence !== null ? round((float) $record->final_confidence, 1) : null;
+            if ($finalvis === 'hide' || $finalval === null) {
+                return '';
             }
+            $finalexpl = ($finalvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record, 'final') : '';
+            $panels[] = self::build_panel_card(
+                get_string('display_final_score', 'plagiarism_dixeo', $finalval),
+                'bg-success text-white',
+                $finalexpl,
+                '',
+                ''
+            );
         } else {
-            if ($scorevis !== 'hide' && $hasconfidence) {
+            // Quiz exists: up to 3 independent panels (Initial, Test, Final).
+            if ($initialvis !== 'hide' && $record->initial_confidence !== null) {
+                $panelindex++;
+                $initialval = round((float) $record->initial_confidence, 1);
+                $initialexpl = ($initialvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record, 'initial') : '';
                 $panels[] = self::build_panel_card(
-                    get_string('authorship_score_badge', 'plagiarism_dixeo', $score ?? 0),
+                    get_string('display_initial_score', 'plagiarism_dixeo', $initialval),
                     'bg-info text-white',
-                    $scoreexplanation
+                    $initialexpl,
+                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex,
+                    $accordionid
                 );
             }
-            if ($testvis !== 'hide' && $record->final_confidence !== null && $record->quiz_grade !== null) {
-                $grade = round((float) $record->quiz_grade, 1);
-                $quizexplanation = ($testvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record) : '';
+            if ($testvis !== 'hide') {
+                $panelindex++;
+                $gradeval = round((float) $record->quiz_grade, 1);
+                $quizexpl = ($testvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record, 'quiz') : '';
                 $panels[] = self::build_panel_card(
-                    get_string('quiz_grade_badge', 'plagiarism_dixeo', $grade),
+                    get_string('display_test_score', 'plagiarism_dixeo', $gradeval),
+                    'bg-primary text-white',
+                    $quizexpl,
+                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex,
+                    $accordionid
+                );
+            }
+            if ($finalvis !== 'hide' && $record->final_confidence !== null) {
+                $panelindex++;
+                $finalval = round((float) $record->final_confidence, 1);
+                $finalexpl = ($finalvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record, 'final') : '';
+                $panels[] = self::build_panel_card(
+                    get_string('display_final_score', 'plagiarism_dixeo', $finalval),
                     'bg-success text-white',
-                    $quizexplanation
+                    $finalexpl,
+                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex,
+                    $accordionid
                 );
             }
         }
 
-        return $panels !== [] ? html_writer::div(implode('', $panels), $containerclass) : '';
+        if ($panels === []) {
+            return '';
+        }
+        return html_writer::div(implode('', $panels), 'plagiarism-dixeo-panels mt-2');
     }
 
     /**
-     * Build a Bootstrap panel (card) with optional body for explanation.
+     * Build a card (card-header + optional card-body). When body is present it can be collapsible.
      *
-     * @param string $headercontent HTML for the panel header (title/link).
+     * @param string $headercontent HTML for the card title (plain text or link).
      * @param string $headerclass Bootstrap classes for the header (e.g. bg-success text-white).
-     * @param string $bodyhtml Sanitised explanation HTML for the card body; empty to omit body.
+     * @param string $bodyhtml Sanitised explanation HTML; empty to omit body.
+     * @param string $collapseid Unique id for the collapse target when collapsible; empty to show body without collapse.
+     * @param string $accordionid Unused; kept for signature compatibility.
      * @return string HTML fragment (card with card-header and optional card-body).
      */
-    protected static function build_panel_card(string $headercontent, string $headerclass, string $bodyhtml): string {
-        $inner = html_writer::div($headercontent, 'card-header ' . $headerclass);
-        if ($bodyhtml !== '') {
-            $id = uniqid('plagiarism-dixeo-panel-');
+    protected static function build_panel_card(string $headercontent, string $headerclass, string $bodyhtml, string $collapseid = '', string $accordionid = ''): string {
+        $hasbody = $bodyhtml !== '';
+        $collapsible = $hasbody && $collapseid !== '';
 
+        if ($collapsible) {
             $attributes = [
-                'data-toggle' => 'collapse',
-                'data-target' => '#' . $id,
-                'aria-expanded' => 'false',
-                'aria-controls' => $id,
-                'style' => 'cursor: pointer;',
+                'data-toggle'    => 'collapse',
+                'data-target'    => '#' . $collapseid,
+                'aria-expanded'  => 'false',
+                'aria-controls'  => $collapseid,
+                'style'          => 'cursor: pointer;',
             ];
-
             $inner = html_writer::div($headercontent, 'card-header ' . $headerclass, $attributes);
             $inner .= html_writer::div(
                 html_writer::div(
-                    html_writer::tag('p', $bodyhtml, ['class' => 'card-text']),
-                    'card-body',
+                    html_writer::tag('p', $bodyhtml, ['class' => 'card-text mb-0']),
+                    'card-body'
                 ),
                 'collapse',
-                ['id' => $id]
+                ['id' => $collapseid]
             );
+        } else {
+            $inner = html_writer::div($headercontent, 'card-header ' . $headerclass);
+            if ($hasbody) {
+                $inner .= html_writer::div(html_writer::tag('p', $bodyhtml, ['class' => 'card-text mb-0']), 'card-body');
+            }
         }
 
         return html_writer::div($inner, 'card plagiarism-dixeo-panel m-2');
     }
 
     /**
-     * Get sanitised explanation text for display below the badge (when visibility is score and feedback).
+     * Get sanitised explanation text for display in a panel (when visibility is score and feedback).
      *
-     * @param \stdClass $record Authorship record (initial_explanation, final_explanation).
+     * @param \stdClass $record Authorship record.
+     * @param string $which One of 'initial', 'quiz', 'final'.
      * @return string Sanitised HTML-safe string.
      */
-    protected static function get_record_explanation_for_display(\stdClass $record): string {
-        $raw = $record->final_explanation !== null && trim((string) $record->final_explanation) !== ''
-            ? trim((string) $record->final_explanation)
-            : trim((string) ($record->initial_explanation ?? ''));
+    protected static function get_record_explanation_for_display(\stdClass $record, string $which = 'final'): string {
+        if ($which === 'initial') {
+            $raw = trim((string) ($record->initial_explanation ?? ''));
+        } elseif ($which === 'quiz') {
+            $raw = trim((string) ($record->quiz_explanation ?? ''));
+        } else {
+            $raw = trim((string) ($record->final_explanation ?? ''));
+        }
         return $raw !== '' ? s($raw) : '';
     }
 
@@ -277,11 +314,18 @@ function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
     }
     $config = $cmid ? plagiarism_plugin_dixeo::get_activity_config($cmid) : [];
     $use = isset($config['use_dixeo']) ? (string) $config['use_dixeo'] : '0';
-    $scorevis = $config['show_score_to_student'] ?? 'score';
-    $testvis = $config['show_test_results_to_student'] ?? 'score';
+    $initialvis = $config['show_initial_score'] ?? $config['show_score_to_student'] ?? 'score';
+    $testvis = $config['show_test_score'] ?? $config['show_test_results_to_student'] ?? 'score';
+    $finalvis = $config['show_final_score'] ?? $config['show_score_to_student'] ?? 'score';
 
     $settings = plagiarism_plugin_dixeo::get_settings();
     $enabled = $settings && !empty($settings['enable_mod_assign']);
+
+    $visibilityoptions = [
+        'hide' => get_string('visibility_hide', 'plagiarism_dixeo'),
+        'score' => get_string('visibility_score', 'plagiarism_dixeo'),
+        'scoreandfeedback' => get_string('visibility_score_and_feedback', 'plagiarism_dixeo'),
+    ];
 
     if ($enabled) {
         $mform->addElement('header', 'plagiarism_dixeo', get_string('pluginname', 'plagiarism_dixeo'));
@@ -293,32 +337,32 @@ function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
         $mform->setType('use_dixeo', PARAM_ALPHANUM);
         $mform->addHelpButton('use_dixeo', 'use_dixeo', 'plagiarism_dixeo');
 
-        $visibilityoptions = [
-            'hide' => get_string('visibility_hide', 'plagiarism_dixeo'),
-            'score' => get_string('visibility_score', 'plagiarism_dixeo'),
-            'scoreandfeedback' => get_string('visibility_score_and_feedback', 'plagiarism_dixeo'),
-        ];
-        $mform->addElement('select', 'dixeo_show_score_to_student',
-            get_string('authorship_score_visibility', 'plagiarism_dixeo'), $visibilityoptions);
-        $mform->setDefault('dixeo_show_score_to_student', $scorevis);
-        $mform->setType('dixeo_show_score_to_student', PARAM_ALPHA);
-        $mform->addHelpButton('dixeo_show_score_to_student', 'authorship_score_visibility', 'plagiarism_dixeo');
-        $mform->hideIf('dixeo_show_score_to_student', 'use_dixeo', 'eq', '0');
+        $mform->addElement('select', 'dixeo_show_initial_score', get_string('display_initial_score_visibility', 'plagiarism_dixeo'), $visibilityoptions);
+        $mform->setDefault('dixeo_show_initial_score', $initialvis);
+        $mform->setType('dixeo_show_initial_score', PARAM_ALPHA);
+        $mform->addHelpButton('dixeo_show_initial_score', 'display_initial_score_visibility', 'plagiarism_dixeo');
+        $mform->hideIf('dixeo_show_initial_score', 'use_dixeo', 'eq', '0');
 
-        $mform->addElement('select', 'dixeo_show_test_results_to_student',
-            get_string('verification_test_score_visibility', 'plagiarism_dixeo'), $visibilityoptions);
-        $mform->setDefault('dixeo_show_test_results_to_student', $testvis);
-        $mform->setType('dixeo_show_test_results_to_student', PARAM_ALPHA);
-        $mform->addHelpButton('dixeo_show_test_results_to_student', 'verification_test_score_visibility', 'plagiarism_dixeo');
-        $mform->hideIf('dixeo_show_test_results_to_student', 'use_dixeo', 'eq', '0');
+        $mform->addElement('select', 'dixeo_show_test_score', get_string('display_test_score_visibility', 'plagiarism_dixeo'), $visibilityoptions);
+        $mform->setDefault('dixeo_show_test_score', $testvis);
+        $mform->setType('dixeo_show_test_score', PARAM_ALPHA);
+        $mform->addHelpButton('dixeo_show_test_score', 'display_test_score_visibility', 'plagiarism_dixeo');
+        $mform->hideIf('dixeo_show_test_score', 'use_dixeo', 'eq', '0');
+
+        $mform->addElement('select', 'dixeo_show_final_score', get_string('display_final_score_visibility', 'plagiarism_dixeo'), $visibilityoptions);
+        $mform->setDefault('dixeo_show_final_score', $finalvis);
+        $mform->setType('dixeo_show_final_score', PARAM_ALPHA);
+        $mform->addHelpButton('dixeo_show_final_score', 'display_final_score_visibility', 'plagiarism_dixeo');
+        $mform->hideIf('dixeo_show_final_score', 'use_dixeo', 'eq', '0');
     } else {
-        // Plugin disabled: add as hidden so they are always in the form and submitted (like Urkund).
         $mform->addElement('hidden', 'use_dixeo', $use);
         $mform->setType('use_dixeo', PARAM_ALPHANUM);
-        $mform->addElement('hidden', 'dixeo_show_score_to_student', $scorevis);
-        $mform->setType('dixeo_show_score_to_student', PARAM_ALPHA);
-        $mform->addElement('hidden', 'dixeo_show_test_results_to_student', $testvis);
-        $mform->setType('dixeo_show_test_results_to_student', PARAM_ALPHA);
+        $mform->addElement('hidden', 'dixeo_show_initial_score', $initialvis);
+        $mform->setType('dixeo_show_initial_score', PARAM_ALPHA);
+        $mform->addElement('hidden', 'dixeo_show_test_score', $testvis);
+        $mform->setType('dixeo_show_test_score', PARAM_ALPHA);
+        $mform->addElement('hidden', 'dixeo_show_final_score', $finalvis);
+        $mform->setType('dixeo_show_final_score', PARAM_ALPHA);
     }
 }
 
@@ -358,15 +402,16 @@ function plagiarism_dixeo_coursemodule_edit_post_actions($data, $course) {
         $existingbykey[$row->name] = $row;
     }
 
-    // Use $data when present; otherwise read from request (form may not have included our elements at definition time).
     $use = $data->use_dixeo ?? optional_param('use_dixeo', isset($existingbykey['use_dixeo']) ? $existingbykey['use_dixeo']->value : '0', PARAM_ALPHANUM);
-    $scorevis = $data->dixeo_show_score_to_student ?? optional_param('dixeo_show_score_to_student', isset($existingbykey['show_score_to_student']) ? $existingbykey['show_score_to_student']->value : 'score', PARAM_ALPHA);
-    $testvis = $data->dixeo_show_test_results_to_student ?? optional_param('dixeo_show_test_results_to_student', isset($existingbykey['show_test_results_to_student']) ? $existingbykey['show_test_results_to_student']->value : 'score', PARAM_ALPHA);
+    $initialvis = $data->dixeo_show_initial_score ?? optional_param('dixeo_show_initial_score', isset($existingbykey['show_initial_score']) ? $existingbykey['show_initial_score']->value : 'score', PARAM_ALPHA);
+    $testvis = $data->dixeo_show_test_score ?? optional_param('dixeo_show_test_score', isset($existingbykey['show_test_score']) ? $existingbykey['show_test_score']->value : 'score', PARAM_ALPHA);
+    $finalvis = $data->dixeo_show_final_score ?? optional_param('dixeo_show_final_score', isset($existingbykey['show_final_score']) ? $existingbykey['show_final_score']->value : 'score', PARAM_ALPHA);
 
     $tosave = [
         'use_dixeo' => (string) $use,
-        'show_score_to_student' => (string) $scorevis,
-        'show_test_results_to_student' => (string) $testvis,
+        'show_initial_score' => (string) $initialvis,
+        'show_test_score' => (string) $testvis,
+        'show_final_score' => (string) $finalvis,
     ];
 
     foreach ($tosave as $name => $value) {
@@ -380,7 +425,8 @@ function plagiarism_dixeo_coursemodule_edit_post_actions($data, $course) {
     }
 
     $data->use_dixeo = $tosave['use_dixeo'];
-    $data->dixeo_show_score_to_student = $tosave['show_score_to_student'];
-    $data->dixeo_show_test_results_to_student = $tosave['show_test_results_to_student'];
+    $data->dixeo_show_initial_score = $tosave['show_initial_score'];
+    $data->dixeo_show_test_score = $tosave['show_test_score'];
+    $data->dixeo_show_final_score = $tosave['show_final_score'];
     return $data;
 }

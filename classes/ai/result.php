@@ -112,7 +112,7 @@ class result {
         if ($this->success) {
             return '';
         }
-        $msg = $this->error ?? 'Unknown error';
+        $msg = $this->error ?? \get_string('error_unknown', 'plagiarism_dixeo');
         if ($this->error_detail !== null && $this->error_detail !== '') {
             $msg .= ': ' . $this->error_detail;
         }

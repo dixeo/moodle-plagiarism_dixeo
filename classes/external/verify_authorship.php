@@ -90,6 +90,7 @@ class verify_authorship extends external_api {
             'quiz_responses' => $decoded,
             'final_confidence' => $result['final_confidence'],
             'quiz_grade' => $result['quiz_grade'],
+            'quiz_explanation' => $result['quiz_explanation'] ?? '',
             'final_explanation' => $result['final_explanation'] ?? '',
         ]);
 

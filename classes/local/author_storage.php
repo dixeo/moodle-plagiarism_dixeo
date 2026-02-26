@@ -70,6 +70,7 @@ class author_storage {
             'quiz_responses' => null,
             'response_timings' => null,
             'quiz_grade' => null,
+            'quiz_explanation' => null,
             'final_confidence' => null,
             'final_explanation' => null,
             'timecreated' => $now,
@@ -96,6 +97,10 @@ class author_storage {
                     : json_encode($frombackend['quiz_data']));
         }
         $hasquiz = $record->quiz_data !== null && $record->quiz_data !== '';
+        if (!$hasquiz && $record->initial_confidence !== null) {
+            $record->final_confidence = $record->initial_confidence;
+            $record->final_explanation = $record->initial_explanation;
+        }
         $record->status = $hasquiz
             ? self::STATUS_VERIFICATION_REQUIRED
             : ($record->initial_confidence !== null ? self::STATUS_COMPLETE : self::STATUS_PENDING);
@@ -169,6 +174,9 @@ class author_storage {
         if (array_key_exists('quiz_grade', $data)) {
             $record->quiz_grade = $data['quiz_grade'] === null ? null : (float) $data['quiz_grade'];
         }
+        if (isset($data['quiz_explanation'])) {
+            $record->quiz_explanation = $data['quiz_explanation'];
+        }
         if (isset($data['final_explanation'])) {
             $record->final_explanation = $data['final_explanation'];
         }
@@ -211,6 +219,10 @@ class author_storage {
             );
         }
         $hasquiz = $record->quiz_data !== null && $record->quiz_data !== '';
+        if (!$hasquiz && $record->initial_confidence !== null) {
+            $record->final_confidence = $record->initial_confidence;
+            $record->final_explanation = $record->initial_explanation;
+        }
         $record->status = $hasquiz
             ? self::STATUS_VERIFICATION_REQUIRED
             : ($record->initial_confidence !== null ? self::STATUS_COMPLETE : self::STATUS_PENDING);

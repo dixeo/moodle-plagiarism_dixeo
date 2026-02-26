@@ -65,6 +65,7 @@ if ($isformsubmit) {
         'quiz_responses' => $responses,
         'final_confidence' => $result['final_confidence'],
         'quiz_grade' => $result['quiz_grade'],
+        'quiz_explanation' => $result['quiz_explanation'] ?? '',
         'final_explanation' => $result['final_explanation'] ?? '',
     ]);
     redirect(new moodle_url('/mod/assign/view.php', ['id' => $cmid]),

@@ -861,7 +861,7 @@ EOT;
             return ['error' => $result->get_failure_message()];
         }
         if (empty($result->data) || !is_array($result->data)) {
-            return ['error' => 'Grading response missing or invalid.'];
+            return ['error' => get_string('grading_error_response_invalid', 'plagiarism_dixeo')];
         }
         $mapped = self::validate_and_map_grading_result($context, $result->data);
         if (isset($mapped['error'])) {
@@ -946,10 +946,16 @@ EOT;
 
         $block = '<div style="margin-top: 1.5em; border-top: 1px solid #dee2e6; padding-top: 0.75em;">';
         $block .= '<p><strong>Authorship verification</strong></p>';
-        $block .= '<p><strong>Initial confidence:</strong> ' . ($initial !== null ? round($initial, 1) . ' / 100' : '—') . '</p>';
+        $block .= '<p><strong>Initial score:</strong> ' . ($initial !== null ? round($initial, 1) . ' / 100' : '—') . '</p>';
         if ($hasquiz) {
             $block .= '<p><strong>Test score:</strong> ' . ($quizgrade !== null ? round($quizgrade, 1) . ' / 100' : '—') . '</p>';
-            $block .= '<p><strong>Final confidence:</strong> ' . ($final !== null ? round($final, 1) . ' / 100' : '—') . '</p>';
+            if (!empty($authorship->quiz_explanation)) {
+                $block .= '<p><strong>Test explanation:</strong> ' . s(trim($authorship->quiz_explanation)) . '</p>';
+            }
+            $block .= '<p><strong>Final score:</strong> ' . ($final !== null ? round($final, 1) . ' / 100' : '—') . '</p>';
+        }
+        if (!empty($authorship->final_explanation)) {
+            $block .= '<p><strong>Final explanation:</strong> ' . s(trim($authorship->final_explanation)) . '</p>';
         }
         $block .= '</div>';
         return $analysis . $block;

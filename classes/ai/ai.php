@@ -95,7 +95,7 @@ class ai {
             $response = $this->openai->completion_api()->create_completion($request);
         } catch (\Throwable $e) {
             return result::fail(
-                'Request failed',
+                \get_string('error_request_failed', 'plagiarism_dixeo'),
                 $e->getMessage()
             );
         }
@@ -129,7 +129,7 @@ class ai {
 
         try {
             if (empty($storedfiles)) {
-                return result::fail('No files to upload', 'storedfiles array is empty');
+                return result::fail(\get_string('error_no_files_to_upload', 'plagiarism_dixeo'), 'storedfiles array is empty');
             }
 
             $curlfiles = [];
@@ -139,14 +139,14 @@ class ai {
                 }
                 $path = $file->copy_content_to_temp('plagiarism_dixeo_assign');
                 if ($path === false) {
-                    return result::fail('Failed to copy file to temp', $file->get_filename());
+                    return result::fail(\get_string('error_failed_copy_file', 'plagiarism_dixeo'), $file->get_filename());
                 }
                 $temppaths[] = $path;
                 $curlfiles[] = new \CURLFile($path, $file->get_mimetype(), $file->get_filename());
             }
             if (empty($curlfiles)) {
                 self::cleanup_temp_paths($temppaths);
-                return result::fail('No valid files', 'No stored_file instances could be converted');
+                return result::fail(\get_string('error_no_valid_files', 'plagiarism_dixeo'), 'No stored_file instances could be converted');
             }
 
             foreach ($curlfiles as $curlfile) {
@@ -189,21 +189,21 @@ class ai {
             if ($jsonstructure !== null) {
                 $decoded = json_decode($content, true);
                 if (json_last_error() !== JSON_ERROR_NONE) {
-                    return result::fail('Response is not valid JSON', json_last_error_msg());
+                    return result::fail(\get_string('error_response_not_json', 'plagiarism_dixeo'), json_last_error_msg());
                 }
                 if (!is_array($decoded)) {
-                    return result::fail('Expected a JSON object', 'Root value is not an object');
+                    return result::fail(\get_string('error_expected_json_object', 'plagiarism_dixeo'), 'Root value is not an object');
                 }
                 $validation = self::validate_structure($decoded, $jsonstructure, 'root');
                 if ($validation !== null) {
-                    return result::fail('Response does not match expected JSON structure', $validation);
+                    return result::fail(\get_string('error_response_structure', 'plagiarism_dixeo'), $validation);
                 }
                 return result::ok($decoded);
             }
 
             return result::ok_raw($content);
         } catch (\Throwable $e) {
-            return result::fail('Request with files failed', $e->getMessage());
+            return result::fail(\get_string('error_request_with_files_failed', 'plagiarism_dixeo'), $e->getMessage());
         } finally {
             if ($threadid !== null) {
                 try {
@@ -264,7 +264,7 @@ class ai {
                 if ($completed > 0) {
                     return;
                 }
-                $msg = get_string('assign_file_not_indexed', 'plagiarism_dixeo');
+                $msg = \get_string('assign_file_not_indexed', 'plagiarism_dixeo');
                 throw new \Exception($msg);
             }
             if (in_array($status, ['failed', 'expired'], true)) {
@@ -336,16 +336,16 @@ class ai {
         if (isset($response['error'])) {
             $info = $response['error'];
             $message = is_array($info) ? ($info['message'] ?? json_encode($info)) : (string) $info;
-            return result::fail('API returned an error', $message);
+            return result::fail(\get_string('error_api_returned_error', 'plagiarism_dixeo'), $message);
         }
 
         if (empty($response['choices']) || !is_array($response['choices'])) {
-            return result::fail('Invalid API response', 'Missing or empty "choices" in response');
+            return result::fail(\get_string('error_invalid_api_response', 'plagiarism_dixeo'), 'Missing or empty "choices" in response');
         }
 
         $content = $response['choices'][0]['message']['content'] ?? null;
         if ($content === null || $content === '') {
-            return result::fail('Empty or missing response content', 'choices[0].message.content is empty');
+            return result::fail(\get_string('error_empty_response_content', 'plagiarism_dixeo'), 'choices[0].message.content is empty');
         }
 
         if ($jsonstructure === null) {
@@ -355,18 +355,18 @@ class ai {
         $decoded = json_decode($content, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
             return result::fail(
-                'Response is not valid JSON',
+                \get_string('error_response_not_json', 'plagiarism_dixeo'),
                 json_last_error_msg() . ' (content length: ' . strlen($content) . ')'
             );
         }
 
         if (!is_array($decoded)) {
-            return result::fail('Expected a JSON object', 'Root value is not an object');
+            return result::fail(\get_string('error_expected_json_object', 'plagiarism_dixeo'), 'Root value is not an object');
         }
 
         $validation = self::validate_structure($decoded, $jsonstructure, 'root');
         if ($validation !== null) {
-            return result::fail('Response does not match expected JSON structure', $validation);
+            return result::fail(\get_string('error_response_structure', 'plagiarism_dixeo'), $validation);
         }
 
         return result::ok($decoded);

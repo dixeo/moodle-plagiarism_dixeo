@@ -8,9 +8,14 @@
  *
  * @package    plagiarism_dixeo
  */
-/* Bootstrap 3 panel-group accordion for authorship status and explanation. */
+/* Cards for authorship status and explanation. */
 .plagiarism-dixeo-panels .plagiarism-dixeo-panel {
+    margin-bottom: 0.75rem;
     overflow: hidden;
+}
+
+.plagiarism-dixeo-panels .plagiarism-dixeo-panel:last-child {
+    margin-bottom: 0;
 }
 
 .plagiarism-dixeo-panel .card-header {
