@@ -111,61 +111,113 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     protected static function get_links_badges_html(\stdClass $record, int $cmid, array $config): string {
         $scorevis = $config['show_score_to_student'] ?? 'score';
         $testvis = $config['show_test_results_to_student'] ?? 'score';
-        $wrap = function ($content, $badgeclass = 'bg-secondary', $title = '') {
-            $class = 'badge ' . $badgeclass . ' plagiarism-dixeo-badge p-2';
-            $attrs = $title !== '' ? ['title' => $title] : null;
-            return html_writer::span($content, $class, $attrs);
-        };
-        $containerclass = 'plagiarism-dixeo-badges d-block mt-2';
+        $containerclass = 'plagiarism-dixeo-panels mt-2';
 
         if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_PENDING) {
             $label = get_string('status_pending_badge', 'plagiarism_dixeo');
-            return html_writer::div($wrap($label, 'bg-warning text-dark'), $containerclass);
+            return html_writer::div(
+                self::build_panel_card($label, 'bg-warning text-dark', ''),
+                $containerclass
+            );
         }
 
         if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_VERIFICATION_REQUIRED) {
             $url = new \moodle_url('/plagiarism/dixeo/verify.php', ['recordid' => $record->id, 'cmid' => $cmid]);
             $label = get_string('verification_required_badge', 'plagiarism_dixeo');
-            $badge = $wrap(html_writer::link($url, $label, ['class' => 'text-white text-decoration-none']), 'bg-primary');
-            return html_writer::div($badge, $containerclass);
+            $headercontent = html_writer::link($url, $label, ['class' => 'text-white text-decoration-none']);
+            return html_writer::div(
+                self::build_panel_card($headercontent, 'bg-primary text-white', ''),
+                $containerclass
+            );
         }
 
         if ($record->status !== \plagiarism_dixeo\local\author_storage::STATUS_COMPLETE) {
             return '';
         }
 
-        $badges = [];
+        $panels = [];
         $hasconfidence = $record->final_confidence !== null || $record->initial_confidence !== null;
         $score = $record->final_confidence !== null
             ? round((float) $record->final_confidence, 1)
             : ($record->initial_confidence !== null ? round((float) $record->initial_confidence, 1) : null);
-        $scorefeedback = $scorevis === 'score_and_feedback' ? self::get_record_explanation_for_display($record) : '';
+        $scoreexplanation = ($scorevis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record) : '';
 
         if ($record->quiz_grade === null && $hasconfidence) {
             if ($scorevis === 'hide') {
-                $badges[] = $wrap(get_string('ready_for_submission_badge_plain', 'plagiarism_dixeo'), 'bg-success', '');
+                $panels[] = self::build_panel_card(
+                    get_string('ready_for_submission_badge_plain', 'plagiarism_dixeo'),
+                    'bg-success text-white',
+                    ''
+                );
             } else {
-                $badges[] = $wrap(get_string('ready_for_submission_badge', 'plagiarism_dixeo', $score ?? 0), 'bg-success', $scorefeedback);
+                $panels[] = self::build_panel_card(
+                    get_string('ready_for_submission_badge', 'plagiarism_dixeo', $score ?? 0),
+                    'bg-success text-white',
+                    $scoreexplanation
+                );
             }
         } else {
             if ($scorevis !== 'hide' && $hasconfidence) {
-                $badges[] = $wrap(get_string('authorship_score_badge', 'plagiarism_dixeo', $score ?? 0), 'bg-info', $scorefeedback);
+                $panels[] = self::build_panel_card(
+                    get_string('authorship_score_badge', 'plagiarism_dixeo', $score ?? 0),
+                    'bg-info text-white',
+                    $scoreexplanation
+                );
             }
             if ($testvis !== 'hide' && $record->final_confidence !== null && $record->quiz_grade !== null) {
                 $grade = round((float) $record->quiz_grade, 1);
-                $quizfeedback = $testvis === 'score_and_feedback' ? self::get_record_explanation_for_display($record) : '';
-                $badges[] = $wrap(get_string('quiz_grade_badge', 'plagiarism_dixeo', $grade), 'bg-success', $quizfeedback);
+                $quizexplanation = ($testvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record) : '';
+                $panels[] = self::build_panel_card(
+                    get_string('quiz_grade_badge', 'plagiarism_dixeo', $grade),
+                    'bg-success text-white',
+                    $quizexplanation
+                );
             }
         }
 
-        return $badges !== [] ? html_writer::div(implode(' ', $badges), $containerclass) : '';
+        return $panels !== [] ? html_writer::div(implode('', $panels), $containerclass) : '';
     }
 
     /**
-     * Get sanitised explanation text for badge title attribute.
+     * Build a Bootstrap panel (card) with optional body for explanation.
+     *
+     * @param string $headercontent HTML for the panel header (title/link).
+     * @param string $headerclass Bootstrap classes for the header (e.g. bg-success text-white).
+     * @param string $bodyhtml Sanitised explanation HTML for the card body; empty to omit body.
+     * @return string HTML fragment (card with card-header and optional card-body).
+     */
+    protected static function build_panel_card(string $headercontent, string $headerclass, string $bodyhtml): string {
+        $inner = html_writer::div($headercontent, 'card-header ' . $headerclass);
+        if ($bodyhtml !== '') {
+            $id = uniqid('plagiarism-dixeo-panel-');
+
+            $attributes = [
+                'data-toggle' => 'collapse',
+                'data-target' => '#' . $id,
+                'aria-expanded' => 'false',
+                'aria-controls' => $id,
+                'style' => 'cursor: pointer;',
+            ];
+
+            $inner = html_writer::div($headercontent, 'card-header ' . $headerclass, $attributes);
+            $inner .= html_writer::div(
+                html_writer::div(
+                    html_writer::tag('p', $bodyhtml, ['class' => 'card-text']),
+                    'card-body',
+                ),
+                'collapse',
+                ['id' => $id]
+            );
+        }
+
+        return html_writer::div($inner, 'card plagiarism-dixeo-panel m-2');
+    }
+
+    /**
+     * Get sanitised explanation text for display below the badge (when visibility is score and feedback).
      *
      * @param \stdClass $record Authorship record (initial_explanation, final_explanation).
-     * @return string Sanitised string for title attribute.
+     * @return string Sanitised HTML-safe string.
      */
     protected static function get_record_explanation_for_display(\stdClass $record): string {
         $raw = $record->final_explanation !== null && trim((string) $record->final_explanation) !== ''
@@ -244,7 +296,7 @@ function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
         $visibilityoptions = [
             'hide' => get_string('visibility_hide', 'plagiarism_dixeo'),
             'score' => get_string('visibility_score', 'plagiarism_dixeo'),
-            'score_and_feedback' => get_string('visibility_score_and_feedback', 'plagiarism_dixeo'),
+            'scoreandfeedback' => get_string('visibility_score_and_feedback', 'plagiarism_dixeo'),
         ];
         $mform->addElement('select', 'dixeo_show_score_to_student',
             get_string('authorship_score_visibility', 'plagiarism_dixeo'), $visibilityoptions);

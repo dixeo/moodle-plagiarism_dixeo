@@ -8,8 +8,18 @@
  *
  * @package    plagiarism_dixeo
  */
-.plagiarism-dixeo-badge {
-    color: white;
+/* Bootstrap 3 panel-group accordion for authorship status and explanation. */
+.plagiarism-dixeo-panels .plagiarism-dixeo-panel {
+    overflow: hidden;
+}
+
+.plagiarism-dixeo-panel .card-header {
+    font-weight: bold;
+    padding: 0.25rem 0.75rem;
+}
+
+.plagiarism-dixeo-panel .card-body {
+    padding: 0.5rem 0.75rem;
 }
 
 .authorship-question-text {
