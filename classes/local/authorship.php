@@ -427,7 +427,10 @@ EOT;
             $options = ['initial_confidence' => $score, 'userid' => $userid];
             $quizdata = $usefiles
                 ? self::generate_quiz_with_files($uploadfiles, $options)
-                : self::generate_quiz($content['text'], $options);
+                : self::generate_quiz($text, $options);
+            if (self::is_empty_quiz_result($quizdata)) {
+                $quizdata = null;
+            }
         }
 
         return [
@@ -435,6 +438,21 @@ EOT;
             'initial_explanation' => $explanation,
             'quiz_data'           => $quizdata,
         ];
+    }
+
+    /**
+     * Whether the quiz result is empty or failed (do not persist as quiz_data).
+     *
+     * @param array|null $quizdata Result from generate_quiz or generate_quiz_with_files.
+     * @return bool
+     */
+    public static function is_empty_quiz_result($quizdata): bool {
+        if ($quizdata === null || !is_array($quizdata)) {
+            return true;
+        }
+        $questions = $quizdata['questions'] ?? [];
+        $generated = !empty($quizdata['meta']['generated']);
+        return (empty($questions) || !is_array($questions)) && !$generated;
     }
 
     /**
@@ -858,29 +876,12 @@ EOT;
             $userraw = $responses[$id] ?? $responses[(string) $id] ?? null;
             $correctkey = $q['correct'] ?? null;
             $isright = null;
-            $displaylabel = null;
             if ($type === self::QUESTION_TYPE_TRUE_FALSE && $correctkey !== null) {
                 $normalized = $userraw === true || $userraw === 1 || $userraw === '1' ? 1 : 0;
                 $isright = ($normalized === (int) $correctkey);
-                $displaylabel = $normalized ? get_string('true', 'plagiarism_dixeo') : get_string('false', 'plagiarism_dixeo');
             } elseif ($type === self::QUESTION_TYPE_MULTIPLE_CHOICE && isset($q['options'])) {
-                $opts = $q['options'];
                 $userval = (string) $userraw;
                 $isright = ($correctkey !== null && $userval === (string) $correctkey);
-                foreach ($opts as $opt) {
-                    $optval = is_array($opt) ? ($opt['value'] ?? $opt['text'] ?? '') : $opt;
-                    if ((string) $optval === $userval) {
-                        $displaylabel = is_array($opt) ? ($opt['text'] ?? (string) $optval) : (string) $opt;
-                        break;
-                    }
-                }
-                if ($displaylabel === null) {
-                    $displaylabel = $userval;
-                }
-            }
-            if ($displaylabel !== null && $isright !== null) {
-                $suffix = $isright ? get_string('answer_correct', 'plagiarism_dixeo') : get_string('answer_incorrect', 'plagiarism_dixeo');
-                $displaylabel = $displaylabel . ' (' . $suffix . ')';
             }
 
             $html[] = '<div class="authorship-result-question authorship-question-' . s($type) . '" data-question-id="' . s($id) . '">';

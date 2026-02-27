@@ -89,6 +89,34 @@ class observer {
     }
 
     /**
+     * Handle assign submission updated (content edited). Clear authorship so new content is re-evaluated.
+     *
+     * @param \mod_assign\event\submission_updated $event The event.
+     * @return void
+     */
+    public static function assign_submission_updated(\mod_assign\event\submission_updated $event): void {
+        if (empty($GLOBALS['CFG']->enableplagiarism) || !get_config('plagiarism_dixeo', 'enabled')) {
+            return;
+        }
+        if (!get_config('plagiarism_dixeo', 'enable_mod_assign')) {
+            return;
+        }
+        $eventdata = $event->get_data();
+        $userid = (int) ($eventdata['relateduserid'] ?? $eventdata['userid'] ?? 0);
+        $other = $eventdata['other'] ?? [];
+        $submissionid = (int) ($other['submissionid'] ?? $eventdata['objectid'] ?? 0);
+        if ($userid <= 0 || $submissionid <= 0) {
+            return;
+        }
+        \plagiarism_dixeo\local\author_storage::delete_by_context(
+            $userid,
+            self::COMPONENT_ASSIGN,
+            self::AREA_SUBMISSION,
+            $submissionid
+        );
+    }
+
+    /**
      * Common handler for assign events: check plugin/activity enabled, then create pending or run sync.
      *
      * @param \core\event\base $event The event (must provide contextinstanceid and userid).
@@ -137,6 +165,9 @@ class observer {
             return;
         }
         $itemid = (int) $submission->id;
+
+        // Clear any existing authorship record so evaluation is for current content only.
+        \plagiarism_dixeo\local\author_storage::delete_by_context($userid, $component, $area, $itemid);
         $submeta = [
             'source_timemodified' => (int) $submission->timemodified,
             'source_attempt' => (int) $submission->attemptnumber,

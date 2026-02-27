@@ -91,11 +91,14 @@ class author_storage {
             $record->initial_explanation = (string) ($frombackend['initial_explanation'] ?? '');
         }
         if (array_key_exists('quiz_data', $frombackend)) {
-            $record->quiz_data = $frombackend['quiz_data'] === null
-                ? null
-                : (is_string($frombackend['quiz_data'])
-                    ? $frombackend['quiz_data']
-                    : json_encode($frombackend['quiz_data']));
+            $qd = $frombackend['quiz_data'];
+            if ($qd === null) {
+                $record->quiz_data = null;
+            } elseif (\plagiarism_dixeo\local\authorship::is_empty_quiz_result(is_string($qd) ? json_decode($qd, true) : $qd)) {
+                $record->quiz_data = null;
+            } else {
+                $record->quiz_data = is_string($qd) ? $qd : json_encode($qd);
+            }
         }
         $hasquiz = $record->quiz_data !== null && $record->quiz_data !== '';
         if (!$hasquiz && $record->initial_confidence !== null) {
@@ -140,6 +143,29 @@ class author_storage {
             'itemid' => $itemid,
         ]);
         return $record ?: null;
+    }
+
+    /**
+     * Delete the authorship record for a given context (e.g. when submission content is edited).
+     *
+     * @param int $userid User id.
+     * @param string $component e.g. mod_assign.
+     * @param string $area e.g. submission.
+     * @param int $itemid Area-specific id (e.g. assign_submission id).
+     * @return bool True if a record was deleted, false otherwise.
+     */
+    public static function delete_by_context(int $userid, string $component, string $area, int $itemid): bool {
+        global $DB;
+        $record = $DB->get_record('plagiarism_dixeo_authorship', [
+            'userid' => $userid,
+            'component' => $component,
+            'area' => $area,
+            'itemid' => $itemid,
+        ]);
+        if (!$record) {
+            return false;
+        }
+        return $DB->delete_records('plagiarism_dixeo_authorship', ['id' => $record->id]);
     }
 
     /**
@@ -219,9 +245,14 @@ class author_storage {
             $record->initial_explanation = $data['initial_explanation'];
         }
         if (array_key_exists('quiz_data', $data)) {
-            $record->quiz_data = $data['quiz_data'] === null ? null : (
-                is_string($data['quiz_data']) ? $data['quiz_data'] : json_encode($data['quiz_data'])
-            );
+            $qd = $data['quiz_data'];
+            if ($qd === null) {
+                $record->quiz_data = null;
+            } elseif (\plagiarism_dixeo\local\authorship::is_empty_quiz_result(is_string($qd) ? json_decode($qd, true) : $qd)) {
+                $record->quiz_data = null;
+            } else {
+                $record->quiz_data = is_string($qd) ? $qd : json_encode($qd);
+            }
         }
         $hasquiz = $record->quiz_data !== null && $record->quiz_data !== '';
         if (!$hasquiz && $record->initial_confidence !== null) {

@@ -39,4 +39,8 @@ $observers = [
         'eventname' => '\mod_assign\event\assessable_submitted',
         'callback'  => 'plagiarism_dixeo\observer::assign_submitted',
     ],
+    [
+        'eventname' => '\mod_assign\event\submission_updated',
+        'callback'  => 'plagiarism_dixeo\observer::assign_submission_updated',
+    ],
 ];
