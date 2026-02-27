@@ -89,6 +89,35 @@ class plagiarism_dixeo_setup_form extends moodleform {
         $mform->addHelpButton('authorship_count_open', 'authorship_count_open', 'plagiarism_dixeo');
         $mform->setDefault('authorship_count_open', 1);
 
+        $mform->addElement('header', 'verification_quiz_timers', get_string('verification_quiz_timers_heading', 'plagiarism_dixeo'));
+        $mform->setExpanded('verification_quiz_timers', false);
+        $mform->addElement('static', 'verification_quiz_timers_desc', '', get_string('verification_quiz_timers_desc', 'plagiarism_dixeo'));
+
+        $mform->addElement('duration', 'quiz_total_time', get_string('quiz_total_time', 'plagiarism_dixeo'));
+        $mform->addHelpButton('quiz_total_time', 'quiz_total_time', 'plagiarism_dixeo');
+        $mform->setDefault('quiz_total_time', 180);
+
+        $mform->addElement('duration', 'quiz_time_true_false', get_string('quiz_time_true_false', 'plagiarism_dixeo'));
+        $mform->addHelpButton('quiz_time_true_false', 'quiz_time_true_false', 'plagiarism_dixeo');
+        $mform->setDefault('quiz_time_true_false', 60);
+
+        $mform->addElement('duration', 'quiz_time_multiple_choice', get_string('quiz_time_multiple_choice', 'plagiarism_dixeo'));
+        $mform->addHelpButton('quiz_time_multiple_choice', 'quiz_time_multiple_choice', 'plagiarism_dixeo');
+        $mform->setDefault('quiz_time_multiple_choice', 60);
+
+        $mform->addElement('duration', 'quiz_time_open', get_string('quiz_time_open', 'plagiarism_dixeo'));
+        $mform->addHelpButton('quiz_time_open', 'quiz_time_open', 'plagiarism_dixeo');
+        $mform->setDefault('quiz_time_open', 180);
+
+        $mform->addElement('checkbox', 'allow_backwards_navigation', get_string('allow_backwards_navigation', 'plagiarism_dixeo'));
+        $mform->addHelpButton('allow_backwards_navigation', 'allow_backwards_navigation', 'plagiarism_dixeo');
+        $mform->setDefault('allow_backwards_navigation', 0);
+
+        $mform->addElement('text', 'next_button_delay_seconds', get_string('next_button_delay_seconds', 'plagiarism_dixeo'));
+        $mform->addHelpButton('next_button_delay_seconds', 'next_button_delay_seconds', 'plagiarism_dixeo');
+        $mform->setType('next_button_delay_seconds', PARAM_INT);
+        $mform->setDefault('next_button_delay_seconds', 3);
+
         $this->add_action_buttons(true);
     }
 }

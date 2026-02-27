@@ -63,6 +63,12 @@ if ($data = $mform->get_data()) {
         'authorship_count_true_false',
         'authorship_count_multiple_choice',
         'authorship_count_open',
+        'quiz_total_time',
+        'quiz_time_true_false',
+        'quiz_time_multiple_choice',
+        'quiz_time_open',
+        'allow_backwards_navigation',
+        'next_button_delay_seconds',
     ];
     foreach ($configfields as $field) {
         if (!isset($data->$field)) {

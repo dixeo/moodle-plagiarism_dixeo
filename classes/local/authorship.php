@@ -131,8 +131,105 @@ Do five things. Each explanation must be unique, specific to the data, and requi
 
 (E) Set "final_explanation" (string): analyze how the initial confidence and the test results together affected the final score. Explain why and how the initial score and the quiz outcome led to this final confidence (e.g. "The initial score suggested X; the test responses showed Y; therefore the final confidence is Z because...").
 
+If "response_timings" is provided (test_started_at, test_ended_at, and per-question started_at/ended_at/seconds), use it to inform your evaluation: unusually short time on a complex open-ended answer or very long time on a simple true/false may suggest cheating or lack of authenticity. Factor timing into final_confidence and final_explanation when relevant.
+
 Respond with a JSON object: { "grade": number or null, "question_feedbacks": [ "line for q0", "line for q1", ... ], "quiz_explanation": string, "final_confidence": number, "final_explanation": string }.
 EOT;
+
+    /**
+     * Return quiz data safe for frontend (no correct answers).
+     *
+     * @param string|array $quizdata Full quiz_data (JSON or array).
+     * @return array{version: int, questions: array}
+     */
+    public static function get_quiz_for_display($quizdata): array {
+        $quiz = is_string($quizdata) ? json_decode($quizdata, true) : (is_array($quizdata) ? $quizdata : []);
+        $questions = $quiz['questions'] ?? [];
+        $safe = [];
+        foreach ($questions as $q) {
+            $safeq = [
+                'id'   => $q['id'] ?? ('q' . count($safe)),
+                'type' => $q['type'] ?? self::QUESTION_TYPE_OPEN,
+                'text' => $q['text'] ?? '',
+            ];
+            if (isset($q['options']) && is_array($q['options'])) {
+                $safeq['options'] = [];
+                foreach ($q['options'] as $opt) {
+                    $safeq['options'][] = is_array($opt)
+                        ? ['value' => $opt['value'] ?? $opt['text'] ?? '', 'text' => $opt['text'] ?? (string) ($opt['value'] ?? '')]
+                        : ['value' => (string) $opt, 'text' => (string) $opt];
+                }
+            }
+            $safe[] = $safeq;
+        }
+        return ['version' => (int) ($quiz['version'] ?? 1), 'questions' => $safe];
+    }
+
+    /**
+     * Get verification quiz timer and navigation settings (global plugin config).
+     *
+     * @return array{total_time_sec: int, time_true_false_sec: int, time_multiple_choice_sec: int, time_open_sec: int, allow_backwards: bool, next_button_delay_sec: int}
+     */
+    public static function get_verification_settings(): array {
+        $total = (int) get_config('plagiarism_dixeo', 'quiz_total_time');
+        $tf = (int) get_config('plagiarism_dixeo', 'quiz_time_true_false');
+        $mc = (int) get_config('plagiarism_dixeo', 'quiz_time_multiple_choice');
+        $open = (int) get_config('plagiarism_dixeo', 'quiz_time_open');
+        $backwards = (bool) get_config('plagiarism_dixeo', 'allow_backwards_navigation');
+        $delay = (int) get_config('plagiarism_dixeo', 'next_button_delay_seconds');
+        if ($total <= 0) {
+            $total = 0;
+        }
+        if ($tf <= 0) {
+            $tf = 0;
+        }
+        if ($mc <= 0) {
+            $mc = 0;
+        }
+        if ($open <= 0) {
+            $open = 0;
+        }
+        if ($delay <= 0) {
+            $delay = 3;
+        }
+        return [
+            'total_time_sec'           => $total,
+            'time_true_false_sec'     => $tf ?: 60,
+            'time_multiple_choice_sec' => $mc ?: 60,
+            'time_open_sec'            => $open ?: 180,
+            'allow_backwards'          => $backwards,
+            'next_button_delay_sec'    => $delay,
+        ];
+    }
+
+    /**
+     * Build instruction fragments for the verification modal (based on settings).
+     *
+     * @param array $settings From get_verification_settings().
+     * @return array{heading: string, intro: string, lines: string[]}
+     */
+    public static function build_verification_instructions(array $settings): array {
+        $heading = get_string('verification_instructions_heading', 'plagiarism_dixeo');
+        $intro = get_string('verification_instructions_intro', 'plagiarism_dixeo');
+        $lines = [];
+        if ($settings['total_time_sec'] > 0) {
+            $mins = (int) round($settings['total_time_sec'] / 60);
+            $duration = $mins >= 1
+                ? get_string('verification_instructions_minutes', 'plagiarism_dixeo', $mins)
+                : get_string('verification_instructions_seconds', 'plagiarism_dixeo', $settings['total_time_sec']);
+            $lines[] = get_string('verification_instructions_total_time', 'plagiarism_dixeo', $duration);
+        } else {
+            $lines[] = get_string('verification_instructions_total_time_unlimited', 'plagiarism_dixeo');
+        }
+        $tf = $settings['time_true_false_sec'] > 0 ? ($settings['time_true_false_sec'] >= 60 ? round($settings['time_true_false_sec'] / 60) . ' min' : $settings['time_true_false_sec'] . ' s') : get_string('verification_instructions_unlimited', 'plagiarism_dixeo');
+        $mc = $settings['time_multiple_choice_sec'] > 0 ? ($settings['time_multiple_choice_sec'] >= 60 ? round($settings['time_multiple_choice_sec'] / 60) . ' min' : $settings['time_multiple_choice_sec'] . ' s') : get_string('verification_instructions_unlimited', 'plagiarism_dixeo');
+        $open = $settings['time_open_sec'] > 0 ? ($settings['time_open_sec'] >= 60 ? round($settings['time_open_sec'] / 60) . ' min' : $settings['time_open_sec'] . ' s') : get_string('verification_instructions_unlimited', 'plagiarism_dixeo');
+        $lines[] = get_string('verification_instructions_question_times', 'plagiarism_dixeo', (object) ['tf' => $tf, 'mc' => $mc, 'open' => $open]);
+        if (!$settings['allow_backwards']) {
+            $lines[] = get_string('verification_instructions_no_backwards', 'plagiarism_dixeo');
+        }
+        return ['heading' => $heading, 'intro' => $intro, 'lines' => $lines];
+    }
 
     /**
      * Whether authorship features are enabled (plagiarism_dixeo plugin only).
@@ -998,9 +1095,10 @@ EOT;
      *
      * @param object $record Authorship record (with initial_confidence, quiz_data).
      * @param array $responses Decoded quiz responses (question id => answer).
+     * @param array|null $response_timings Optional. Passed to AI for timing context.
      * @return array{final_confidence: float, grade: float|null, final_explanation: string}
      */
-    public static function evaluate_final_confidence(object $record, array $responses): array {
+    public static function evaluate_final_confidence(object $record, array $responses, ?array $response_timings = null): array {
         $structure = [
             'type'       => 'object',
             'properties' => [
@@ -1019,6 +1117,9 @@ EOT;
             'questions'         => json_encode($questions, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
             'answers'            => json_encode($responses, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
         ];
+        if ($response_timings !== null && $response_timings !== []) {
+            $data['response_timings'] = json_encode($response_timings, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        }
         $ai = new ai('Dixeo authorship', ['authorship' => 'final_confidence']);
         $result = $ai->send_request(
             self::PROMPT_FINAL_CONFIDENCE,
@@ -1073,12 +1174,19 @@ EOT;
      * @param float|null $initialconfidence Initial confidence (0–100)
      * @return array{final_confidence: float, quiz_grade: float|null, quiz_explanation: string, quiz_question_feedbacks: array, final_explanation: string}
      */
-    public static function evaluate_verify($quizdata, array $responses, ?float $initialconfidence = null): array {
+    /**
+     * @param string|array $quizdata
+     * @param array $responses
+     * @param float|null $initialconfidence
+     * @param array|null $response_timings Optional. Passed to AI for evaluation context.
+     * @return array
+     */
+    public static function evaluate_verify($quizdata, array $responses, ?float $initialconfidence = null, ?array $response_timings = null): array {
         $record = (object) [
             'quiz_data'          => is_string($quizdata) ? $quizdata : json_encode($quizdata),
             'initial_confidence' => $initialconfidence ?? 0,
         ];
-        $evaluation = self::evaluate_final_confidence($record, $responses);
+        $evaluation = self::evaluate_final_confidence($record, $responses, $response_timings);
         $grade = $evaluation['grade'] ?? self::compute_quiz_grade($record, $responses);
         return [
             'final_confidence'         => (float) $evaluation['final_confidence'],

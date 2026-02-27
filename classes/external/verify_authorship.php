@@ -49,6 +49,7 @@ class verify_authorship extends external_api {
         return new external_function_parameters([
             'record_id' => new external_value(PARAM_INT, 'Authorship record id.'),
             'responses' => new external_value(PARAM_RAW, 'JSON object of question id -> answer.', VALUE_DEFAULT, '{}'),
+            'response_timings' => new external_value(PARAM_RAW, 'JSON object with test_started_at, test_ended_at, questions.', VALUE_OPTIONAL, null),
         ]);
     }
 
@@ -57,15 +58,17 @@ class verify_authorship extends external_api {
      *
      * @param int $recordid Authorship record id.
      * @param string $responses JSON object keyed by question id.
+     * @param string|null $response_timings Optional JSON object with test_started_at, test_ended_at, questions.
      * @return array{success: bool, final_confidence: float}
      * @throws \moodle_exception If capability check fails.
      */
-    public static function execute(int $recordid, string $responses = '{}'): array {
+    public static function execute(int $recordid, string $responses = '{}', ?string $response_timings = null): array {
         global $USER;
 
         $params = self::validate_parameters(self::execute_parameters(), [
             'record_id' => $recordid,
             'responses' => $responses,
+            'response_timings' => $response_timings,
         ]);
 
         $context = context_user::instance($USER->id);
@@ -76,6 +79,14 @@ class verify_authorship extends external_api {
             $decoded = [];
         }
 
+        $timings = null;
+        if (!empty($params['response_timings'])) {
+            $timings = json_decode($params['response_timings'], true);
+            if (!is_array($timings)) {
+                $timings = null;
+            }
+        }
+
         $record = author_storage::get_record($params['record_id']);
         if (!$record || (int) $record->userid !== (int) $USER->id) {
             return ['success' => false, 'final_confidence' => 0.0];
@@ -84,16 +95,21 @@ class verify_authorship extends external_api {
         $result = authorship::evaluate_verify(
             $record->quiz_data,
             $decoded,
-            $record->initial_confidence !== null ? (float) $record->initial_confidence : null
+            $record->initial_confidence !== null ? (float) $record->initial_confidence : null,
+            $timings
         );
-        author_storage::update_record($params['record_id'], [
+        $update = [
             'quiz_responses' => $decoded,
             'final_confidence' => $result['final_confidence'],
             'quiz_grade' => $result['quiz_grade'],
             'quiz_explanation' => $result['quiz_explanation'] ?? '',
             'quiz_question_feedbacks' => $result['quiz_question_feedbacks'] ?? [],
             'final_explanation' => $result['final_explanation'] ?? '',
-        ]);
+        ];
+        if ($timings !== null) {
+            $update['response_timings'] = $timings;
+        }
+        author_storage::update_record($params['record_id'], $update);
 
         return [
             'success'          => true,

@@ -92,3 +92,113 @@
     border-top: 1px solid #dee2e6;
     padding-top: 0.75rem;
 }
+
+/* Verification modal: instructions screen. */
+.plagiarism-dixeo-instructions {
+    padding: 0.25rem 0;
+}
+
+.plagiarism-dixeo-instructions__heading {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: #212529;
+}
+
+.plagiarism-dixeo-instructions__intro {
+    margin-bottom: 1rem;
+    line-height: 1.5;
+    color: #495057;
+}
+
+.plagiarism-dixeo-instructions__rules {
+    margin-bottom: 0;
+    padding-left: 1.25rem;
+}
+
+.plagiarism-dixeo-instructions__rules li {
+    margin-bottom: 0.5rem;
+    line-height: 1.45;
+    position: relative;
+}
+
+.plagiarism-dixeo-instructions__rules li::before {
+    content: "•";
+    position: absolute;
+    left: -1rem;
+    color: #6c757d;
+    font-weight: bold;
+}
+
+/* Verification modal: header with question counter (top right). */
+.plagiarism-dixeo-verification-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.plagiarism-dixeo-verification-header .modal-title {
+    margin-bottom: 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.plagiarism-dixeo-verification-counter-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.plagiarism-dixeo-verification-donut {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: conic-gradient(var(--primary, #0d6efd) 0deg calc(var(--p, 0) * 3.6deg), #dee2e6 calc(var(--p, 0) * 3.6deg) 360deg);
+}
+
+.plagiarism-dixeo-verification-counter {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+/* Verification modal: question footer (left: Prev/Next, right: timers + Submit). */
+.plagiarism-dixeo-verification-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.plagiarism-dixeo-verification-footer__left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-right: auto;
+}
+
+.plagiarism-dixeo-verification-footer__right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.plagiarism-dixeo-footer-total-timer,
+.plagiarism-dixeo-footer-question-timer {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.plagiarism-dixeo-icon {
+    display: inline-block;
+    font-size: 1.1em;
+    line-height: 1;
+    opacity: 0.85;
+}

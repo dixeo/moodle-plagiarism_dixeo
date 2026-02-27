@@ -132,11 +132,33 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         }
 
         if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_VERIFICATION_REQUIRED) {
-            $url = new \moodle_url('/plagiarism/dixeo/verify.php', ['recordid' => $record->id, 'cmid' => $cmid]);
             $label = get_string('verification_required_badge', 'plagiarism_dixeo');
-            $headercontent = html_writer::link($url, $label, ['class' => 'text-white text-decoration-none']);
+            $attrs = [
+                'class' => 'plagiarism-dixeo-open-verification-modal text-white text-decoration-none btn btn-link p-0',
+                'href' => '#',
+                'role' => 'button',
+                'data-record-id' => (int) $record->id,
+                'data-cmid' => (int) $cmid,
+            ];
+            $headercontent = html_writer::tag('a', $label, $attrs);
             return html_writer::div(
                 self::build_panel_card($headercontent, 'bg-warning text-white', '', '', ''),
+                $containerclass
+            );
+        }
+
+        if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_VERIFICATION_IN_PROGRESS) {
+            $label = get_string('verification_in_progress_badge', 'plagiarism_dixeo');
+            $attrs = [
+                'class' => 'plagiarism-dixeo-open-verification-modal text-white text-decoration-none btn btn-link p-0',
+                'href' => '#',
+                'role' => 'button',
+                'data-record-id' => (int) $record->id,
+                'data-cmid' => (int) $cmid,
+            ];
+            $headercontent = html_writer::tag('a', $label, $attrs);
+            return html_writer::div(
+                self::build_panel_card($headercontent, 'bg-info text-white', '', '', ''),
                 $containerclass
             );
         }

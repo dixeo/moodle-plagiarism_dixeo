@@ -41,6 +41,9 @@ class author_storage {
     /** Status: verification test required before submission. */
     public const STATUS_VERIFICATION_REQUIRED = 'verification_required';
 
+    /** Status: user has started the verification test (clicked Start), not yet submitted. */
+    public const STATUS_VERIFICATION_IN_PROGRESS = 'verification_in_progress';
+
     /**
      * Create an authorship record (pending or from initial backend response).
      *
@@ -169,11 +172,12 @@ class author_storage {
     }
 
     /**
-     * Update record after verification (quiz submission).
+     * Update record (verification progress or final result).
      *
      * @param int $id Record id.
-     * @param array $data Keys: quiz_responses (JSON string or array), response_timings (optional),
-     *                    final_confidence, quiz_grade, final_explanation.
+     * @param array $data Keys: status (optional), quiz_responses (JSON string or array),
+     *                    response_timings (optional), final_confidence, quiz_grade, quiz_explanation,
+     *                    quiz_question_feedbacks (optional), final_explanation (optional).
      * @return bool Success.
      */
     public static function update_record(int $id, array $data): bool {
@@ -185,7 +189,11 @@ class author_storage {
         }
 
         $record->timemodified = time();
-        $record->status = self::STATUS_COMPLETE;
+        if (array_key_exists('status', $data)) {
+            $record->status = (string) $data['status'];
+        } elseif (isset($data['final_confidence']) || array_key_exists('quiz_grade', $data)) {
+            $record->status = self::STATUS_COMPLETE;
+        }
 
         if (isset($data['quiz_responses'])) {
             $record->quiz_responses = is_string($data['quiz_responses'])

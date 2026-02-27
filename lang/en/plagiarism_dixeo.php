@@ -45,6 +45,7 @@ $string['status_pending'] = 'Authorship check in progress…';
 $string['status_pending_badge'] = 'Pending...';
 $string['verification_required'] = 'Complete authorship verification';
 $string['verification_required_badge'] = 'Verification required';
+$string['verification_in_progress_badge'] = 'Verification in progress';
 $string['authorship_score'] = 'Authorship: {$a}%';
 $string['authorship_score_badge'] = 'Score {$a}%';
 $string['ready_for_submission_badge'] = 'Ready for submission: {$a}%';
@@ -91,6 +92,43 @@ $string['authorship_count_multiple_choice_help'] = 'How many multiple choice que
 $string['authorship_count_open'] = 'Number of open questions';
 $string['authorship_count_open_desc'] = 'How many open (free text) questions to generate in the verification quiz (0–5).';
 $string['authorship_count_open_help'] = 'How many open (free text) questions to generate in the verification quiz (0–5).';
+
+// Verification quiz timers and navigation (global settings).
+$string['verification_quiz_timers_heading'] = 'Verification quiz timers and navigation';
+$string['verification_quiz_timers_desc'] = 'Total time and per-question time limits for the verification test. Set to 0 for unlimited. Time spent is always recorded and sent to the AI for evaluation.';
+$string['quiz_total_time'] = 'Total quiz time';
+$string['quiz_total_time_help'] = 'Maximum time for the entire quiz. 0 = unlimited. Default: 3 minutes.';
+$string['quiz_time_true_false'] = 'Time per true/false question';
+$string['quiz_time_true_false_help'] = 'Maximum time per true/false question. 0 = unlimited. Default: 1 minute.';
+$string['quiz_time_multiple_choice'] = 'Time per multiple choice question';
+$string['quiz_time_multiple_choice_help'] = 'Maximum time per multiple choice question. 0 = unlimited. Default: 1 minute.';
+$string['quiz_time_open'] = 'Time per open question';
+$string['quiz_time_open_help'] = 'Maximum time per open (free text) question. 0 = unlimited. Default: 3 minutes.';
+$string['allow_backwards_navigation'] = 'Allow backwards navigation';
+$string['allow_backwards_navigation_help'] = 'When disabled, the user cannot return to previous questions after moving forward. Next button is disabled for a few seconds to avoid double-clicks.';
+$string['next_button_delay_seconds'] = 'Next button delay (seconds)';
+$string['next_button_delay_seconds_help'] = 'Seconds to disable the Next button after clicking (when backwards navigation is disabled). Default: 3.';
+
+// Verification modal instructions (fragments; combined based on settings).
+$string['verification_instructions_heading'] = 'Before you start';
+$string['verification_instructions_intro'] = 'This short quiz helps confirm that the work you submitted is your own. You will answer a few questions based on your submission. Please read the rules below:';
+$string['verification_instructions_total_time'] = 'Total time: {$a}';
+$string['verification_instructions_total_time_unlimited'] = 'No overall time limit';
+$string['verification_instructions_question_times'] = 'Time per question — True/false: {$a->tf}; Multiple choice: {$a->mc}; Open answer: {$a->open}';
+$string['verification_instructions_no_backwards'] = 'You cannot return to previous questions once you have moved on';
+$string['verification_instructions_start'] = 'Start';
+$string['verification_instructions_minutes'] = '{$a} minutes';
+$string['verification_instructions_seconds'] = '{$a} seconds';
+$string['verification_instructions_unlimited'] = 'Unlimited';
+$string['verification_timer_remaining'] = 'Time remaining: {$a}';
+$string['verification_question_timer_remaining'] = 'Question time: {$a}';
+$string['verification_previous'] = 'Previous';
+$string['verification_next'] = 'Next';
+$string['verification_submit'] = 'Submit';
+$string['verification_submitting'] = 'Submitting...';
+$string['verification_test_submitted'] = 'Test submitted';
+$string['verification_test_submitted_message'] = 'Your verification test has been submitted. You can close this window.';
+
 $string['assign_file_not_indexed'] = 'The uploaded file(s) could not be indexed for analysis (the service may not support this file type or the file may be unreadable). Please try a different file or format.';
 $string['true'] = 'True';
 $string['false'] = 'False';
@@ -123,6 +161,9 @@ $string['authorship_quiz_modal_title'] = 'Verification required';
 $string['authorship_confirm_and_submit'] = 'Confirm and submit';
 $string['authorship_cancel'] = 'Cancel';
 $string['authorship_error_missing_record'] = 'Verification data is missing. Please cancel and try again.';
+$string['error_no_quiz_available'] = 'No verification quiz available.';
+$string['error_verification_content_failed'] = 'Verification content could not be loaded.';
+$string['verification_close'] = 'Close';
 
 // Grading and AI errors (user-visible).
 $string['grading_error_response_invalid'] = 'Grading response missing or invalid.';
