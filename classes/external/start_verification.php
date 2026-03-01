@@ -18,6 +18,7 @@
  * External API: start verification test (set status in progress, record test_started_at).
  *
  * @package    plagiarism_dixeo
+ * @author     Josemaria Bolanos <admin@mako.digital>
  * @copyright  2026 Dixeo.com
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -33,15 +34,29 @@ use plagiarism_dixeo\local\author_storage;
 
 defined('MOODLE_INTERNAL') || die();
 
+/**
+ * External API: start verification test (set status in progress, record test_started_at).
+ */
 class start_verification extends external_api {
 
-    public static function execute_parameters() {
+    /**
+     * Parameter description.
+     *
+     * @return \core_external\external_function_parameters
+     */
+    public static function execute_parameters(): \core_external\external_function_parameters {
         return new external_function_parameters([
             'record_id' => new external_value(PARAM_INT, 'Authorship record id.'),
         ]);
     }
 
-    public static function execute($recordid) {
+    /**
+     * Start the verification test for the given authorship record.
+     *
+     * @param int $recordid Authorship record id.
+     * @return array{success: bool, test_started_at: int}
+     */
+    public static function execute(int $recordid): array {
         global $USER;
         $params = self::validate_parameters(self::execute_parameters(), ['record_id' => $recordid]);
         $context = context_user::instance($USER->id);
@@ -63,7 +78,12 @@ class start_verification extends external_api {
         return ['success' => true, 'test_started_at' => $now];
     }
 
-    public static function execute_returns() {
+    /**
+     * Return value description.
+     *
+     * @return \core_external\external_single_structure
+     */
+    public static function execute_returns(): \core_external\external_single_structure {
         return new external_single_structure([
             'success' => new external_value(PARAM_BOOL, 'Started.'),
             'test_started_at' => new external_value(PARAM_INT, 'Unix timestamp.'),

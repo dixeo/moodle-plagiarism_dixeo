@@ -72,6 +72,8 @@ $string['display_final_score_visibility_help'] = 'Show the final authorship scor
 $string['visibility_hide'] = 'Hide from student';
 $string['visibility_score'] = 'Display score';
 $string['visibility_score_and_feedback'] = 'Display score and feedback';
+$string['panel_maximize'] = 'Maximize';
+$string['panel_minimize'] = 'Minimize';
 $string['authorship_no_content'] = 'No submission content to evaluate.';
 $string['authorship_explanation_fallback'] = 'Score assigned based on content analysis.';
 
@@ -127,6 +129,10 @@ $string['verification_next'] = 'Next';
 $string['verification_submit'] = 'Submit';
 $string['verification_submitting'] = 'Submitting...';
 $string['verification_test_submitted'] = 'Test submitted';
+$string['timer_test_tooltip'] = 'The test will be submitted automatically when this timer ends.';
+$string['timer_question_tooltip'] = 'The next question will be shown when this timer ends.';
+$string['question_locked'] = 'Question locked';
+$string['question_locked_tooltip'] = 'This question cannot be edited';
 $string['verification_test_submitted_message'] = 'Your verification test has been submitted. You can close this window.';
 
 $string['assign_file_not_indexed'] = 'The uploaded file(s) could not be indexed for analysis (the service may not support this file type or the file may be unreadable). Please try a different file or format.';

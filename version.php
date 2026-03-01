@@ -26,7 +26,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'plagiarism_dixeo';
-$plugin->version   = 2026022602;
+$plugin->version   = 2026022603;
 $plugin->requires  = 2022041900; // Moodle 4.0 or later.
 $plugin->maturity  = MATURITY_ALPHA;
 $plugin->release   = '0.1.0';

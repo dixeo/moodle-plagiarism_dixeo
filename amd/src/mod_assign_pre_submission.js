@@ -66,6 +66,33 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     }
 
     /**
+     * Hide the loading modal and return a Promise that resolves when it is fully hidden.
+     * Use this before opening another modal so focus and aria-hidden are cleared.
+     *
+     * @returns {Promise<void>}
+     */
+    function hideLoadingModalAndWait() {
+        var el = document.getElementById(LOADING_MODAL_ID);
+        if (!el) {
+            return Promise.resolve();
+        }
+        var $el = $(el);
+        return new Promise(function(resolve) {
+            var resolved = false;
+            /** One-time resolve guard so we resolve only once (from event or timeout). */
+            function finish() {
+                if (!resolved) {
+                    resolved = true;
+                    resolve();
+                }
+            }
+            $el.one('hidden.bs.modal', finish);
+            $el.modal('hide');
+            setTimeout(finish, 500);
+        });
+    }
+
+    /**
      * Show the loading modal (spinner + message). Creates once and reuses; updates message when reused. Locked.
      * Resolves after the modal has finished showing.
      *
@@ -121,8 +148,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         $(document).on('click.plagiarism_dixeo_verification', '.plagiarism-dixeo-open-verification-modal', function(e) {
             e.preventDefault();
             var recordId = parseInt($(this).data('record-id'), 10) || 0;
+            var cmid = parseInt($(this).data('cmid'), 10) || 0;
             if (recordId > 0) {
-                openVerificationModal(recordId);
+                openVerificationModal(recordId, null, cmid);
             }
         });
 
@@ -249,14 +277,16 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                         id: parseInt(formId, 10) || 0
                     },
                     done: function(data) {
-                        hideLoadingModal();
                         var recordId = (data && data.record_id) ? parseInt(data.record_id, 10) : 0;
                         if (recordId === 0) {
+                            hideLoadingModal();
                             submissionAuthorized = true;
                             form.submit();
                             return;
                         }
-                        openVerificationModal(recordId, form);
+                        hideLoadingModalAndWait().then(function() {
+                            openVerificationModal(recordId, form, parseInt(formId, 10) || 0);
+                        });
                     },
                     fail: function(err) {
                         hideLoadingModal();
@@ -280,8 +310,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
      *
      * @param {number} recordId Authorship record id.
      * @param {HTMLFormElement|null} formOptional Assign form if opened from submit (for submissionAuthorized after close).
+     * @param {number} cmid Course module id (for refreshing panel after submit).
      */
-    function openVerificationModal(recordId, formOptional) {
+    function openVerificationModal(recordId, formOptional, cmid) {
         Str.get_string('authorship_verifying', 'plagiarism_dixeo').then(function(loadingMsg) {
             return showLoadingModal(loadingMsg);
         }).then(function() {
@@ -325,7 +356,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                         return;
                     }
                     showVerificationQuizModal(
-                        recordId, questions, settings, instructions, state, formOptional
+                        recordId, questions, settings, instructions, state, formOptional, cmid || 0
                     );
                 },
                 fail: function(err) {
@@ -340,7 +371,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     }
 
     /**
-     * Show a simple modal with "Test submitted" and Close. On close, reload to refresh badge.
+     * Show a simple modal with "Test submitted" and Close. On close, reload.
      */
     function showVerificationSubmittedModal() {
         var modal = document.getElementById(VERIFICATION_MODAL_ID);
@@ -393,8 +424,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
      * @param {Object} instructions Intro and lines.
      * @param {Object|null} state Restored state if in progress.
      * @param {HTMLFormElement|null} formOptional Assign form if opened from submit.
+     * @param {number} cmid Course module id (for refreshing panel after submit).
      */
-    function showVerificationQuizModal(recordId, questions, settings, instructions, state, formOptional) {
+    function showVerificationQuizModal(recordId, questions, settings, instructions, state, formOptional, cmid) {
         var modal = document.getElementById(VERIFICATION_MODAL_ID);
         if (modal && modal.parentNode) {
             modal.parentNode.removeChild(modal);
@@ -407,11 +439,17 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             Str.get_string('verification_submit', 'plagiarism_dixeo'),
             Str.get_string('verification_instructions_unlimited', 'plagiarism_dixeo'),
             Str.get_string('true', 'plagiarism_dixeo'),
-            Str.get_string('false', 'plagiarism_dixeo')
+            Str.get_string('false', 'plagiarism_dixeo'),
+            Str.get_string('timer_test_tooltip', 'plagiarism_dixeo'),
+            Str.get_string('timer_question_tooltip', 'plagiarism_dixeo'),
+            Str.get_string('question_locked', 'plagiarism_dixeo'),
+            Str.get_string('question_locked_tooltip', 'plagiarism_dixeo')
         ]).then(function(arr) {
             var uiStrings = {
                 cancel: arr[0], start: arr[1], previous: arr[2], next: arr[3],
-                submit: arr[4], unlimited: arr[5], trueLabel: arr[6], falseLabel: arr[7]
+                submit: arr[4], unlimited: arr[5], trueLabel: arr[6], falseLabel: arr[7],
+                timerTestTooltip: arr[8], timerQuestionTooltip: arr[9],
+                questionLocked: arr[10], questionLockedTooltip: arr[11]
             };
         var totalTimeSec = parseInt(settings.total_time_sec, 10) || 0;
         var allowBackwards = settings.allow_backwards === true || settings.allow_backwards === '1';
@@ -423,6 +461,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         var ctx = {
             strings: uiStrings,
             recordId: recordId,
+            cmid: parseInt(cmid, 10) || 0,
             formOptional: formOptional || null,
             questions: questions,
             settings: settings,
@@ -437,7 +476,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             currentIndex: 0,
             visited: {},
             nextUnlockAt: 0,
-            timerInterval: null
+            timerInterval: null,
+            _lastSaveTimingsAt: 0
         };
         if (state && state.test_started_at) {
             ctx.timings = state.response_timings || ctx.timings;
@@ -449,20 +489,36 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             if (ctx.currentIndex < 0 || ctx.currentIndex >= questions.length) {
                 ctx.currentIndex = 0;
             }
-            ctx.timings.test_started_at = state.test_started_at;
+            ctx.timings.test_started_at = parseInt(ctx.timings.test_started_at || state.test_started_at, 10) || 0;
+            ctx.timings.current_index = ctx.currentIndex;
+            var qKeys = Object.keys(ctx.timings.questions || {});
+            for (var qi = 0; qi < qKeys.length; qi++) {
+                var qk = qKeys[qi];
+                var qt = ctx.timings.questions[qk];
+                if (qt && typeof qt === 'object') {
+                    if (qt.started_at !== undefined && qt.started_at !== null) {
+                        qt.started_at = parseInt(qt.started_at, 10);
+                    }
+                    if (qt.remaining !== undefined && qt.remaining !== null) {
+                        qt.remaining = parseInt(qt.remaining, 10);
+                    }
+                }
+            }
+            if (!ctx.allowBackwards) {
+                var curQkey = 'q' + ctx.currentIndex;
+                var curStarted = ctx.timings.questions[curQkey] && ctx.timings.questions[curQkey].started_at;
+                ctx.nextUnlockAt = (curStarted || state.test_started_at) + ctx.nextDelaySec;
+            }
             for (var i = 0; i <= ctx.currentIndex && i < questions.length; i++) {
                 ctx.visited[i] = true;
             }
             var qkey = 'q' + ctx.currentIndex;
-            if (!ctx.timings.questions[qkey] || !ctx.timings.questions[qkey].started_at) {
-                if (!ctx.timings.questions[qkey]) {
-                    ctx.timings.questions[qkey] = {};
-                }
-                ctx.timings.questions[qkey].started_at = ctx.currentIndex === 0
-                    ? ctx.timings.test_started_at
-                    : Math.floor(Date.now() / 1000);
+            if (!ctx.timings.questions[qkey]) {
+                ctx.timings.questions[qkey] = {};
             }
-            ctx.timings.current_index = ctx.currentIndex;
+            if (!ctx.timings.questions[qkey].started_at && ctx.currentIndex === 0 && ctx.timings.test_started_at) {
+                ctx.timings.questions[qkey].started_at = ctx.timings.test_started_at;
+            }
         }
 
         var modalEl = document.createElement('div');
@@ -475,8 +531,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             '    <div class="modal-header plagiarism-dixeo-verification-header">' +
             '      <h5 class="modal-title plagiarism-dixeo-verification-title"></h5>' +
             '      <span class="plagiarism-dixeo-verification-counter-wrap">' +
-            '        <span class="plagiarism-dixeo-verification-donut" aria-hidden="true"></span>' +
             '        <span class="plagiarism-dixeo-verification-counter" aria-hidden="true"></span>' +
+            '        <span class="plagiarism-dixeo-verification-donut" aria-hidden="true"></span>' +
             '      </span>' +
             '    </div>' +
             '    <div class="modal-body plagiarism-dixeo-verification-body"></div>' +
@@ -548,6 +604,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                         ctx.visited[0] = true;
                         ctx.timings.current_index = 0;
                         ctx.timings.questions['q' + ctx.currentIndex] = { started_at: data.test_started_at, ended_at: null, seconds: 0 };
+                        if (!ctx.allowBackwards) {
+                            ctx.nextUnlockAt = data.test_started_at + ctx.nextDelaySec;
+                        }
                         showScreen('question');
                         startTimers(ctx, bodyEl, footerEl, modalEl);
                     }
@@ -562,7 +621,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             Str.get_string('authorship_quiz_modal_title', 'plagiarism_dixeo').then(function(t) {
                 titleEl.textContent = t;
                 showScreen('question');
-                startTimers(ctx, bodyEl, footerEl, modalEl);
+                $(modalEl).one('shown.bs.modal', function() {
+                    startTimers(ctx, bodyEl, footerEl, modalEl);
+                });
             });
         } else {
             Str.get_string('authorship_quiz_modal_title', 'plagiarism_dixeo').then(function(t) {
@@ -623,12 +684,17 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                     if (ctx.formOptional) {
                         submissionAuthorized = true;
                     }
-                    location.reload();
+                    setTimeout(function() {
+                        location.reload();
+                    }, 200);
                 },
                 fail: function(err) {
                     hideLoadingModal();
                     Notification.exception(err);
                     ctx._submitInProgress = false;
+                    setTimeout(function() {
+                        location.reload();
+                    }, 200);
                 }
             }]);
         }).catch(function(err) {
@@ -640,6 +706,10 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
 
     /** Update total and per-question timer displays, Next unlock, and auto-submit when total time expires. */
     function startTimers(ctx, bodyEl, footerEl, modalEl) {
+        if (ctx._lockToNextTimeout) {
+            clearTimeout(ctx._lockToNextTimeout);
+            ctx._lockToNextTimeout = null;
+        }
         if (ctx.timerInterval) {
             clearInterval(ctx.timerInterval);
         }
@@ -650,11 +720,81 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         ctx.timerInterval = setInterval(tick, 1000);
     }
 
-    /** Write remaining time into footer timer elements (00:00), hide if unlimited, auto-submit when total expires. */
+    /** Disable all inputs and show locked overlay (lock icon + "Question locked") when timer is zero. Only runs when bodyEl is inside the verification modal. */
+    function lockCurrentQuestionInputs(bodyEl, modalEl, ctx) {
+        if (!bodyEl || (modalEl && !modalEl.contains(bodyEl))) {
+            return;
+        }
+        var container = bodyEl.querySelector('.plagiarism-dixeo-question-content');
+        if (!container) {
+            return;
+        }
+        if (container.querySelector('.plagiarism-dixeo-question-locked-overlay')) {
+            return;
+        }
+        container.querySelectorAll('input, select, textarea').forEach(function(el) {
+            el.disabled = true;
+        });
+        var lockedText = (ctx && ctx.strings && ctx.strings.questionLocked) ? ctx.strings.questionLocked : 'Question locked';
+        var lockedTooltip = (ctx && ctx.strings && ctx.strings.questionLockedTooltip) ? ctx.strings.questionLockedTooltip : 'This question cannot be edited';
+        var overlay = document.createElement('div');
+        overlay.className = 'plagiarism-dixeo-question-locked-overlay';
+        overlay.setAttribute('title', lockedTooltip);
+        overlay.setAttribute('aria-label', lockedTooltip);
+        overlay.innerHTML = '<span class="plagiarism-dixeo-question-locked-icon" aria-hidden="true">' +
+            '<i class="fa fa-lock"></i></span><span class="plagiarism-dixeo-question-locked-text">' +
+            (lockedText.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</span>';
+        container.appendChild(overlay);
+    }
+
+    /** Delay in ms between locking a question and auto-advancing to the next. */
+    var LOCK_TO_NEXT_DELAY_MS = 2000;
+
+    /** Advance to next question after lock (capture response, update timings, save, render, start timers). */
+    function advanceToNextQuestionAfterLock(ctx, bodyEl, modalEl, titleEl, counterWrapEl, counterEl, donutEl, footerEl) {
+        captureResponseFromBody(bodyEl, ctx);
+        var now = Math.floor(Date.now() / 1000);
+        var qkey = 'q' + ctx.currentIndex;
+        if (ctx.timings.questions[qkey]) {
+            ctx.timings.questions[qkey].ended_at = now;
+            var sq = ctx.timings.questions[qkey];
+            ctx.timings.questions[qkey].seconds = (sq.ended_at || now) - (sq.started_at || now);
+        }
+        ctx.nextUnlockAt = now + ctx.nextDelaySec;
+        ctx.currentIndex++;
+        ctx.visited[ctx.currentIndex] = true;
+        ctx.timings.current_index = ctx.currentIndex;
+        var nextQkey = 'q' + ctx.currentIndex;
+        if (!ctx.timings.questions[nextQkey]) {
+            ctx.timings.questions[nextQkey] = {};
+        }
+        ctx.timings.questions[nextQkey].started_at = now;
+        saveVerificationProgress(ctx, function() {
+            renderQuestionScreen(ctx, titleEl, counterEl, donutEl, counterWrapEl, bodyEl, footerEl, modalEl);
+            var nBtn = footerEl.querySelector('.plagiarism-dixeo-verification-next');
+            if (nBtn) {
+                nBtn.disabled = true;
+                var unlockAt = ctx.nextUnlockAt;
+                var check = setInterval(function() {
+                    if (Math.floor(Date.now() / 1000) >= unlockAt) {
+                        nBtn.disabled = false;
+                        clearInterval(check);
+                    }
+                }, 500);
+            }
+            startTimers(ctx, bodyEl, footerEl, modalEl);
+        });
+    }
+
+    /** Write remaining time into footer timer elements (00:00), hide if unlimited, auto-submit when total expires, auto-advance when question time expires. */
     function updateTimerDisplays(ctx, bodyEl, footerEl, modalEl) {
         var totalRem = getRemainingTotal(ctx);
         var qRem = getRemainingQuestion(ctx);
         if (totalRem === 0) {
+            if (ctx._lockToNextTimeout) {
+                clearTimeout(ctx._lockToNextTimeout);
+                ctx._lockToNextTimeout = null;
+            }
             if (ctx.timerInterval) {
                 clearInterval(ctx.timerInterval);
                 ctx.timerInterval = null;
@@ -662,6 +802,30 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             doVerificationSubmit(ctx, bodyEl, modalEl);
             return;
         }
+        if (qRem === 0 && !ctx.allowBackwards && ctx.currentIndex < ctx.questions.length - 1 && ctx._questionTimerJustExpired !== ctx.currentIndex) {
+            ctx._questionTimerJustExpired = ctx.currentIndex;
+            lockCurrentQuestionInputs(bodyEl, modalEl, ctx);
+            var titleEl = modalEl.querySelector('.plagiarism-dixeo-verification-title');
+            var counterWrapEl = modalEl.querySelector('.plagiarism-dixeo-verification-counter-wrap');
+            var counterEl = modalEl.querySelector('.plagiarism-dixeo-verification-counter');
+            var donutEl = modalEl.querySelector('.plagiarism-dixeo-verification-donut');
+            ctx._lockToNextTimeout = setTimeout(function() {
+                ctx._lockToNextTimeout = null;
+                advanceToNextQuestionAfterLock(ctx, bodyEl, modalEl, titleEl, counterWrapEl, counterEl, donutEl, footerEl);
+            }, LOCK_TO_NEXT_DELAY_MS);
+            return;
+        }
+        if (qRem === 0) {
+            lockCurrentQuestionInputs(bodyEl, modalEl, ctx);
+        }
+        if (ctx.allowBackwards) {
+            var nowSave = Math.floor(Date.now() / 1000);
+            if (nowSave - (ctx._lastSaveTimingsAt || 0) >= 5) {
+                ctx._lastSaveTimingsAt = nowSave;
+                saveVerificationProgress(ctx, function() {});
+            }
+        }
+        var qRem = getRemainingQuestion(ctx);
         var totalWrap = footerEl.querySelector('.plagiarism-dixeo-footer-total-timer');
         var qWrap = footerEl.querySelector('.plagiarism-dixeo-footer-question-timer');
         var totalEl = totalWrap ? totalWrap.querySelector('.plagiarism-dixeo-timer-value') : null;
@@ -688,25 +852,22 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         }
     }
 
-    /** Seconds remaining for total quiz or null if unlimited. */
+    /** Seconds remaining for total quiz or null if unlimited. Uses current time so it keeps counting after reload. */
     function getRemainingTotal(ctx) {
-        if (!ctx.totalTimeSec || !ctx.timings.test_started_at) {
+        var started = ctx.timings.test_started_at;
+        if (!ctx.totalTimeSec || started === undefined || started === null || started <= 0) {
             return null;
         }
-        var elapsed = Math.floor(Date.now() / 1000) - ctx.timings.test_started_at;
+        var nowSec = Math.floor(Date.now() / 1000);
+        var elapsed = nowSec - (Number(started));
         var rem = ctx.totalTimeSec - elapsed;
         return rem <= 0 ? 0 : rem;
     }
 
-    /** Seconds remaining for current question or null if unlimited. */
-    function getRemainingQuestion(ctx) {
-        var q = ctx.questions[ctx.currentIndex];
+    /** Time limit in seconds for a question by index, or null if unlimited. */
+    function getQuestionLimit(ctx, index) {
+        var q = ctx.questions[index];
         if (!q) {
-            return null;
-        }
-        var qkey = 'q' + ctx.currentIndex;
-        var qTiming = ctx.timings.questions[qkey];
-        if (!qTiming || !qTiming.started_at) {
             return null;
         }
         var limit = ctx.timeOpen;
@@ -715,24 +876,48 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         } else if (q.type === QUESTION_TYPE_MULTIPLE_CHOICE) {
             limit = ctx.timeMc;
         }
+        return limit || null;
+    }
+
+    /** Seconds remaining for current question or null if unlimited. Always derived from started_at so reload has no effect. */
+    function getRemainingQuestion(ctx) {
+        var q = ctx.questions[ctx.currentIndex];
+        if (!q) {
+            return null;
+        }
+        var qkey = 'q' + ctx.currentIndex;
+        var limit = getQuestionLimit(ctx, ctx.currentIndex);
         if (!limit) {
             return null;
         }
-        var elapsed = Math.floor(Date.now() / 1000) - qTiming.started_at;
+        var qTiming = ctx.timings.questions[qkey];
+        if (!qTiming) {
+            ctx.timings.questions[qkey] = {};
+            qTiming = ctx.timings.questions[qkey];
+        }
+        var qStarted = qTiming.started_at;
+        if (qStarted === undefined || qStarted === null) {
+            return null;
+        }
+        var nowSec = Math.floor(Date.now() / 1000);
+        var elapsed = nowSec - (Number(qStarted));
         var rem = limit - elapsed;
         return rem <= 0 ? 0 : rem;
     }
 
-    /** Ensure current question has started_at for timer (fixes restore). */
+    /** Ensure current question has started_at for timer. On restore never overwrite from state: only set when missing so reload has no effect on remaining time. */
     function ensureCurrentQuestionStartedAt(ctx) {
         var qkey = 'q' + ctx.currentIndex;
-        if (!ctx.timings.questions[qkey] || !ctx.timings.questions[qkey].started_at) {
-            if (!ctx.timings.questions[qkey]) {
-                ctx.timings.questions[qkey] = {};
-            }
-            ctx.timings.questions[qkey].started_at = ctx.currentIndex === 0 && ctx.timings.test_started_at
-                ? ctx.timings.test_started_at
-                : Math.floor(Date.now() / 1000);
+        if (ctx.timings.questions[qkey] && ctx.timings.questions[qkey].started_at) {
+            return;
+        }
+        if (!ctx.timings.questions[qkey]) {
+            ctx.timings.questions[qkey] = {};
+        }
+        if (ctx.currentIndex === 0 && ctx.timings.test_started_at) {
+            ctx.timings.questions[qkey].started_at = ctx.timings.test_started_at;
+        } else {
+            ctx.timings.questions[qkey].started_at = Math.floor(Date.now() / 1000);
         }
     }
 
@@ -764,7 +949,10 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         var qRem = getRemainingQuestion(ctx);
 
         bodyEl.innerHTML = '<div class="plagiarism-dixeo-question-content">' +
-            renderOneQuestionHtml(q, qId, ctx.responses[qId], ctx.strings) + '</div>';
+            renderOneQuestionHtml(q, qId, ctx.responses[qId], ctx.strings, ctx.currentIndex + 1) + '</div>';
+        if (qRem === 0) {
+            lockCurrentQuestionInputs(bodyEl, modalEl, ctx);
+        }
 
         var prevDisabled = !ctx.allowBackwards || ctx.currentIndex === 0;
         var showNext = ctx.currentIndex < ctx.questions.length - 1;
@@ -779,9 +967,11 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         }
         var totalDisplay = totalRem !== null ? 'inline-flex' : 'none';
         var qDisplay = qRem !== null ? 'inline-flex' : 'none';
-        var rightPart = '<span class="plagiarism-dixeo-footer-total-timer" style="display:' + totalDisplay + '">' +
+        var totalTitle = (ctx.strings.timerTestTooltip || '').replace(/"/g, '&quot;');
+        var questionTitle = (ctx.strings.timerQuestionTooltip || '').replace(/"/g, '&quot;');
+        var rightPart = '<span class="plagiarism-dixeo-footer-total-timer" title="' + totalTitle + '" style="display:' + totalDisplay + '">' +
             ICON_CLOCK + ' <span class="plagiarism-dixeo-timer-value">' + formatMinutesSeconds(totalRem) + '</span></span>' +
-            ' <span class="plagiarism-dixeo-footer-question-timer" style="display:' + qDisplay + '">' +
+            ' <span class="plagiarism-dixeo-footer-question-timer" title="' + questionTitle + '" style="display:' + qDisplay + '">' +
             ICON_QUESTION + ' <span class="plagiarism-dixeo-timer-value">' + formatMinutesSeconds(qRem) + '</span></span>' +
             ' <button type="button" class="btn btn-success plagiarism-dixeo-verification-submit" ' +
             (submitEnabled ? '' : ' disabled') + '>' + ctx.strings.submit + '</button>';
@@ -808,7 +998,11 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                 if (!ctx.timings.questions[prevQkey]) {
                     ctx.timings.questions[prevQkey] = {};
                 }
-                ctx.timings.questions[prevQkey].started_at = now;
+                if (!ctx.timings.questions[prevQkey].started_at) {
+                    ctx.timings.questions[prevQkey].started_at = ctx.currentIndex === 0 && ctx.timings.test_started_at
+                        ? ctx.timings.test_started_at
+                        : now;
+                }
                 saveVerificationProgress(ctx, function() {
                     renderQuestionScreen(ctx, titleEl, counterEl, donutEl, counterWrapEl, bodyEl, footerEl, modalEl);
                     startTimers(ctx, bodyEl, footerEl, modalEl);
@@ -839,7 +1033,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                 if (!ctx.timings.questions[nextQkey]) {
                     ctx.timings.questions[nextQkey] = {};
                 }
-                ctx.timings.questions[nextQkey].started_at = now;
+                if (!ctx.timings.questions[nextQkey].started_at) {
+                    ctx.timings.questions[nextQkey].started_at = now;
+                }
                 saveVerificationProgress(ctx, function() {
                     renderQuestionScreen(ctx, titleEl, counterEl, donutEl, counterWrapEl, bodyEl, footerEl, modalEl);
                     var nBtn = footerEl.querySelector('.plagiarism-dixeo-verification-next');
@@ -915,13 +1111,14 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         }]);
     }
 
-    /** Build HTML for one question (true/false, multiple choice, or open). */
-    function renderOneQuestionHtml(q, qId, currentValue, uiStrings) {
+    /** Build HTML for one question (true/false, multiple choice, or open). When timer reaches zero, inputs are locked via lockCurrentQuestionInputs. */
+    function renderOneQuestionHtml(q, qId, currentValue, uiStrings, questionNumber) {
         var name = 'authorship_q[' + qId + ']';
         var text = (q.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var numberedText = (questionNumber ? questionNumber + '. ' : '') + text;
         var trueLabel = (uiStrings && uiStrings.trueLabel) ? uiStrings.trueLabel : 'True';
         var falseLabel = (uiStrings && uiStrings.falseLabel) ? uiStrings.falseLabel : 'False';
-        var html = '<div class="form-group"><p class="font-weight-bold">' + text + '</p>';
+        var html = '<div class="form-group"><p class="font-weight-bold">' + numberedText + '</p>';
         if (q.type === QUESTION_TYPE_TRUE_FALSE) {
             var valTrue = (currentValue === 'true' || currentValue === '1');
             var valFalse = (currentValue === 'false' || currentValue === '0');

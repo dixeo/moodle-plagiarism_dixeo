@@ -88,6 +88,7 @@ class check_authorship extends external_api {
             'component' => $params['component'],
             'area'      => $params['area'],
             'itemid'    => $content['itemid'],
+            'pre_submit' => true,
         ];
         if (!empty($content['files']) && is_array($content['files'])) {
             $contextarr['uploadfiles'] = $content['files'];

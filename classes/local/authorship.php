@@ -267,16 +267,26 @@ EOT;
         $explanation = (string) ($initial['explanation'] ?? '');
         $record = null;
         $quizhtml = '';
-        if (self::is_quiz_required($score)) {
+        $verificationenabled = get_config('plagiarism_dixeo', 'verification_test');
+        $userid = (int) ($context['userid'] ?? 0);
+        $component = (string) ($context['component'] ?? '');
+        $area = (string) ($context['area'] ?? '');
+        $itemid = (int) ($context['itemid'] ?? 0);
+        $presubmit = !empty($context['pre_submit']);
+        $existing = $verificationenabled && $itemid > 0
+            ? author_storage::get_record_by_context($userid, $component, $area, $itemid)
+            : null;
+        // Require verification when score is below threshold, or when pre-submit and no existing record (e.g. record was deleted after edit).
+        $hascontent = $usefiles || trim($text) !== '';
+        $needverification = $verificationenabled && (
+            self::is_quiz_required($score) ||
+            ($presubmit && $itemid > 0 && $existing === null && $hascontent)
+        );
+        if ($needverification) {
             $options = array_merge($context, ['initial_confidence' => $score]);
             $quiz = $usefiles
                 ? self::generate_quiz_with_files($uploadfiles, $options)
                 : self::generate_quiz($text, $options);
-            $userid = (int) ($context['userid'] ?? 0);
-            $component = (string) ($context['component'] ?? '');
-            $area = (string) ($context['area'] ?? '');
-            $itemid = (int) ($context['itemid'] ?? 0);
-            $existing = author_storage::get_record_by_context($userid, $component, $area, $itemid);
             $frombackend = [
                 'initial_confidence'  => $score,
                 'initial_explanation'  => $explanation,
@@ -518,9 +528,10 @@ EOT;
         }
 
         $threshold = self::get_confidence_threshold();
+        $verificationenabled = get_config('plagiarism_dixeo', 'verification_test');
 
         $quizdata = null;
-        if (self::is_quiz_required($score, $threshold)) {
+        if ($verificationenabled && self::is_quiz_required($score, $threshold)) {
             $options = ['initial_confidence' => $score, 'userid' => $userid];
             $quizdata = $usefiles
                 ? self::generate_quiz_with_files($uploadfiles, $options)
@@ -561,6 +572,9 @@ EOT;
      */
     public static function is_quiz_required(float $score, ?float $threshold = null): bool {
         $threshold = $threshold ?? self::get_confidence_threshold();
+        if ($threshold >= self::CONFIDENCE_MAX) {
+            return false;
+        }
         if ($threshold <= 0) {
             return true;
         }

@@ -97,14 +97,14 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             return '';
         }
 
+        global $PAGE;
+        $PAGE->requires->js_call_amd('plagiarism_dixeo/panel', 'init', []);
         return self::get_links_badges_html($record, $cmid, $config);
     }
 
     /**
      * Build panel HTML for a single authorship record (pending, verification required, or complete).
-     *
-     * When no quiz was generated: only Final score panel (final_confidence + final_explanation per config).
-     * When quiz exists: up to 3 independent panels (Initial score, Test score, Final score) per config.
+     * Renders via Mustache template; panel maximize/minimize is loaded via js_call_amd when panels are shown.
      *
      * @param \stdClass $record Authorship record.
      * @param int $cmid Course module id (for verify link).
@@ -112,6 +112,8 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
      * @return string HTML fragment.
      */
     protected static function get_links_badges_html(\stdClass $record, int $cmid, array $config): string {
+        global $OUTPUT;
+
         $context = \context_module::instance($cmid);
         $isteacher = has_capability('mod/assign:grade', $context);
         if ($isteacher) {
@@ -121,83 +123,81 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             $testvis = $config['show_test_score'] ?? $config['show_test_results_to_student'] ?? 'score';
             $finalvis = $config['show_final_score'] ?? $config['show_score_to_student'] ?? 'score';
         }
-        $containerclass = 'plagiarism-dixeo-panels mt-2';
+        $containerid = 'plagiarism-dixeo-panels-' . $cmid;
 
         if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_PENDING) {
-            $label = get_string('status_pending_badge', 'plagiarism_dixeo');
-            return html_writer::div(
-                self::build_panel_card($label, 'bg-warning text-dark', '', '', ''),
-                $containerclass
-            );
+            $panels = [
+                self::build_panel_data(get_string('status_pending_badge', 'plagiarism_dixeo'), 'bg-warning text-dark', '', ''),
+            ];
+            return $OUTPUT->render_from_template('plagiarism_dixeo/panels', [
+                'containerid' => $containerid,
+                'panels'      => $panels,
+            ]);
         }
 
         if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_VERIFICATION_REQUIRED) {
             $label = get_string('verification_required_badge', 'plagiarism_dixeo');
-            $attrs = [
-                'class' => 'plagiarism-dixeo-open-verification-modal text-white text-decoration-none btn btn-link p-0',
-                'href' => '#',
-                'role' => 'button',
-                'data-record-id' => (int) $record->id,
-                'data-cmid' => (int) $cmid,
-            ];
-            $headercontent = html_writer::tag('a', $label, $attrs);
-            return html_writer::div(
-                self::build_panel_card($headercontent, 'bg-warning text-white', '', '', ''),
-                $containerclass
-            );
+            $link = html_writer::tag('a', $label, [
+                'class'           => 'plagiarism-dixeo-open-verification-modal text-white text-decoration-none btn btn-link p-0',
+                'href'            => '#',
+                'role'            => 'button',
+                'data-record-id'  => (int) $record->id,
+                'data-cmid'       => (int) $cmid,
+            ]);
+            $panels = [self::build_panel_data($link, 'bg-warning text-white', '', '')];
+            return $OUTPUT->render_from_template('plagiarism_dixeo/panels', [
+                'containerid' => $containerid,
+                'panels'      => $panels,
+            ]);
         }
 
         if ($record->status === \plagiarism_dixeo\local\author_storage::STATUS_VERIFICATION_IN_PROGRESS) {
             $label = get_string('verification_in_progress_badge', 'plagiarism_dixeo');
-            $attrs = [
-                'class' => 'plagiarism-dixeo-open-verification-modal text-white text-decoration-none btn btn-link p-0',
-                'href' => '#',
-                'role' => 'button',
-                'data-record-id' => (int) $record->id,
-                'data-cmid' => (int) $cmid,
-            ];
-            $headercontent = html_writer::tag('a', $label, $attrs);
-            return html_writer::div(
-                self::build_panel_card($headercontent, 'bg-info text-white', '', '', ''),
-                $containerclass
-            );
+            $link = html_writer::tag('a', $label, [
+                'class'           => 'plagiarism-dixeo-open-verification-modal text-white text-decoration-none btn btn-link p-0',
+                'href'            => '#',
+                'role'            => 'button',
+                'data-record-id'  => (int) $record->id,
+                'data-cmid'       => (int) $cmid,
+            ]);
+            $panels = [self::build_panel_data($link, 'bg-info text-white', '', '')];
+            return $OUTPUT->render_from_template('plagiarism_dixeo/panels', [
+                'containerid' => $containerid,
+                'panels'      => $panels,
+            ]);
         }
 
         if ($record->status !== \plagiarism_dixeo\local\author_storage::STATUS_COMPLETE) {
             return '';
         }
 
-        $panels = [];
+        $panelsdata = [];
         $panelindex = 0;
         $accordionid = 'plagiarism-dixeo-accordion-' . (int) $record->id;
         $hasquiz = $record->quiz_grade !== null;
 
         if (!$hasquiz) {
-            // No test generated: show only Final score and explanation (no accordion, single panel).
             $finalval = $record->final_confidence !== null ? round((float) $record->final_confidence, 1) : null;
             if ($finalvis === 'hide' || $finalval === null) {
                 return '';
             }
             $finalexpl = ($finalvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record, 'final') : '';
-            $panels[] = self::build_panel_card(
+            $panelsdata[] = self::build_panel_data(
                 get_string('display_final_score', 'plagiarism_dixeo', $finalval),
                 'bg-success text-white',
                 $finalexpl,
-                '',
                 ''
             );
         } else {
-            // Quiz exists: up to 3 independent panels (Initial, Test, Final).
             if ($initialvis !== 'hide' && $record->initial_confidence !== null) {
                 $panelindex++;
                 $initialval = round((float) $record->initial_confidence, 1);
                 $initialexpl = ($initialvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record, 'initial') : '';
-                $panels[] = self::build_panel_card(
+                $panelsdata[] = self::build_panel_data(
                     get_string('display_initial_score', 'plagiarism_dixeo', $initialval),
                     'bg-info text-white',
                     $initialexpl,
-                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex,
-                    $accordionid
+                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex
                 );
             }
             if ($testvis !== 'hide') {
@@ -206,79 +206,63 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
                 $quizbody = '';
                 if ($testvis === 'scoreandfeedback') {
                     $hasresponses = !empty($record->quiz_responses);
-                    if ($hasresponses) {
-                        $quizbody = \plagiarism_dixeo\local\authorship::render_quiz_results($record, []);
-                    } else {
-                        $quizbody = self::get_record_explanation_for_display($record, 'quiz');
-                    }
+                    $quizbody = $hasresponses
+                        ? \plagiarism_dixeo\local\authorship::render_quiz_results($record, [])
+                        : self::get_record_explanation_for_display($record, 'quiz');
                 }
-                $panels[] = self::build_panel_card(
+                $panelsdata[] = self::build_panel_data(
                     get_string('display_test_score', 'plagiarism_dixeo', $gradeval),
                     'bg-primary text-white',
                     $quizbody,
-                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex,
-                    $accordionid
+                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex
                 );
             }
             if ($finalvis !== 'hide' && $record->final_confidence !== null) {
                 $panelindex++;
                 $finalval = round((float) $record->final_confidence, 1);
                 $finalexpl = ($finalvis === 'scoreandfeedback') ? self::get_record_explanation_for_display($record, 'final') : '';
-                $panels[] = self::build_panel_card(
+                $panelsdata[] = self::build_panel_data(
                     get_string('display_final_score', 'plagiarism_dixeo', $finalval),
                     'bg-success text-white',
                     $finalexpl,
-                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex,
-                    $accordionid
+                    'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $panelindex
                 );
             }
         }
 
-        if ($panels === []) {
+        if ($panelsdata === []) {
             return '';
         }
-        return html_writer::div(implode('', $panels), 'plagiarism-dixeo-panels mt-2');
+        return $OUTPUT->render_from_template('plagiarism_dixeo/panels', [
+            'containerid' => $containerid,
+            'panels'      => $panelsdata,
+        ]);
     }
 
     /**
-     * Build a card (card-header + optional card-body). When body is present it can be collapsible.
+     * Build one panel's template data (titlehtml, headerclass, hasbody, bodyhtml, collapsible, collapseid, maximizelabel).
      *
-     * @param string $headercontent HTML for the card title (plain text or link).
-     * @param string $headerclass Bootstrap classes for the header (e.g. bg-success text-white).
-     * @param string $bodyhtml Sanitised explanation HTML; empty to omit body.
-     * @param string $collapseid Unique id for the collapse target when collapsible; empty to show body without collapse.
-     * @param string $accordionid Unused; kept for signature compatibility.
-     * @return string HTML fragment (card with card-header and optional card-body).
+     * @param string $titlehtml Header content (plain text or link HTML).
+     * @param string $headerclass Bootstrap classes for the header.
+     * @param string $bodyhtml Explanation/body HTML; empty to omit body.
+     * @param string $collapseid Unique id for collapse target; empty if not collapsible.
+     * @return array Template data for one panel.
      */
-    protected static function build_panel_card(string $headercontent, string $headerclass, string $bodyhtml, string $collapseid = '', string $accordionid = ''): string {
+    protected static function build_panel_data(string $titlehtml, string $headerclass, string $bodyhtml, string $collapseid = ''): array {
         $hasbody = $bodyhtml !== '';
         $collapsible = $hasbody && $collapseid !== '';
-
-        if ($collapsible) {
-            $attributes = [
-                'data-toggle'    => 'collapse',
-                'data-target'    => '#' . $collapseid,
-                'aria-expanded'  => 'false',
-                'aria-controls'  => $collapseid,
-                'style'          => 'cursor: pointer;',
-            ];
-            $inner = html_writer::div($headercontent, 'card-header ' . $headerclass, $attributes);
-            $inner .= html_writer::div(
-                html_writer::div(
-                    html_writer::div($bodyhtml, 'card-text mb-0'),
-                    'card-body'
-                ),
-                'collapse',
-                ['id' => $collapseid]
-            );
-        } else {
-            $inner = html_writer::div($headercontent, 'card-header ' . $headerclass);
-            if ($hasbody) {
-                $inner .= html_writer::div(html_writer::div($bodyhtml, 'card-text mb-0'), 'card-body');
-            }
+        $data = [
+            'titlehtml'    => $titlehtml,
+            'headerclass'  => $headerclass,
+            'hasbody'      => $hasbody,
+            'bodyhtml'     => $bodyhtml,
+            'collapsible'  => $collapsible,
+            'collapseid'   => $collapseid,
+        ];
+        if ($hasbody) {
+            $data['maximizelabel'] = get_string('panel_maximize', 'plagiarism_dixeo');
         }
-
-        return html_writer::div($inner, 'card plagiarism-dixeo-panel m-2');
+        return $data;
     }
 
     /**

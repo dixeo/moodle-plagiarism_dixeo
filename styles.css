@@ -23,8 +23,72 @@
     padding: 0.25rem 0.75rem;
 }
 
+.plagiarism-dixeo-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.plagiarism-dixeo-panel-header-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.plagiarism-dixeo-panel .plagiarism-dixeo-panel-maximize {
+    flex-shrink: 0;
+    opacity: 0.9;
+}
+
+.plagiarism-dixeo-panel .plagiarism-dixeo-panel-maximize:hover {
+    opacity: 1;
+}
+
 .plagiarism-dixeo-panel .card-body {
     padding: 0.5rem 0.75rem;
+}
+
+/* Maximized panel overlay (full-viewport readable view). */
+.plagiarism-dixeo-panel-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1055;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.plagiarism-dixeo-panel-overlay-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.plagiarism-dixeo-panel-overlay-card {
+    position: relative;
+    z-index: 1;
+    max-width: 42rem;
+    width: 100%;
+    max-height: calc(100vh - 2rem);
+    overflow: auto;
+    background: #fff;
+    border-radius: 0.3rem;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.plagiarism-dixeo-panel-overlay-card .card-header {
+    border-radius: 0.3rem 0.3rem 0 0;
+}
+
+.plagiarism-dixeo-panel-overlay-card .plagiarism-dixeo-panel-minimize {
+    flex-shrink: 0;
+}
+
+.btn.plagiarism-dixeo-panel-maximize:focus,
+.btn.plagiarism-dixeo-panel-minimize:focus {
+    box-shadow: none;
 }
 
 .authorship-question-text {
@@ -91,6 +155,39 @@
 .plagiarism-dixeo-quiz-results .authorship-result-general {
     border-top: 1px solid #dee2e6;
     padding-top: 0.75rem;
+}
+
+/* Verification modal: question content (relative for locked overlay). */
+.plagiarism-dixeo-question-content {
+    position: relative;
+}
+
+/* Locked question overlay: semi-transparent with lock icon and text. */
+.plagiarism-dixeo-question-locked-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.85);
+    pointer-events: none;
+    border-radius: 0.25rem;
+}
+
+.plagiarism-dixeo-question-locked-icon {
+    font-size: 1.75rem;
+    color: #6c757d;
+}
+
+.plagiarism-dixeo-question-locked-icon .fa {
+    font-size: inherit;
+}
+
+.plagiarism-dixeo-question-locked-text {
+    font-weight: 600;
+    color: #495057;
 }
 
 /* Verification modal: instructions screen. */
@@ -162,14 +259,14 @@
 .plagiarism-dixeo-verification-counter {
     font-variant-numeric: tabular-nums;
     font-weight: 600;
-    opacity: 0.9;
+    color: #737373;
 }
 
 /* Verification modal: question footer (left: Prev/Next, right: timers + Submit). */
 .plagiarism-dixeo-verification-footer {
     display: flex;
     flex-wrap: wrap;
-    justify-content: space-between;
+    justify-content: space-between !important;
     align-items: center;
     gap: 0.5rem;
     width: 100%;

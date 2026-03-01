@@ -15,9 +15,10 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * External API: get verification quiz for modal (no correct answers).
+ * External API: get verification quiz for modal (no correct answers). May auto-submit if time expired.
  *
  * @package    plagiarism_dixeo
+ * @author     Josemaria Bolanos <admin@mako.digital>
  * @copyright  2026 Dixeo.com
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -34,15 +35,30 @@ use plagiarism_dixeo\local\authorship;
 
 defined('MOODLE_INTERNAL') || die();
 
+/**
+ * External API: get verification quiz for modal (questions and settings; no correct answers).
+ * May auto-submit if total time has expired.
+ */
 class get_verification_quiz extends external_api {
 
-    public static function execute_parameters() {
+    /**
+     * Parameter description.
+     *
+     * @return \core_external\external_function_parameters
+     */
+    public static function execute_parameters(): \core_external\external_function_parameters {
         return new external_function_parameters([
             'record_id' => new external_value(PARAM_INT, 'Authorship record id.'),
         ]);
     }
 
-    public static function execute($recordid) {
+    /**
+     * Return quiz data, settings, instructions and optional state for the verification modal.
+     *
+     * @param int $recordid Authorship record id.
+     * @return array{submitted: bool, questions: string, settings: string, instructions: string, state: string|null}
+     */
+    public static function execute(int $recordid): array {
         global $USER;
         $params = self::validate_parameters(self::execute_parameters(), ['record_id' => $recordid]);
         $context = context_user::instance($USER->id);
@@ -131,7 +147,12 @@ class get_verification_quiz extends external_api {
         ];
     }
 
-    protected static function empty_response() {
+    /**
+     * Empty response when record is invalid or not in a quiz state.
+     *
+     * @return array{submitted: bool, questions: string, settings: string, instructions: string, state: null}
+     */
+    protected static function empty_response(): array {
         return [
             'submitted' => false,
             'questions' => '[]',
@@ -141,7 +162,12 @@ class get_verification_quiz extends external_api {
         ];
     }
 
-    public static function execute_returns() {
+    /**
+     * Return value description.
+     *
+     * @return \core_external\external_single_structure
+     */
+    public static function execute_returns(): \core_external\external_single_structure {
         return new external_single_structure([
             'submitted' => new external_value(PARAM_BOOL, 'True if auto-submitted.'),
             'questions' => new external_value(PARAM_RAW, 'JSON questions.'),

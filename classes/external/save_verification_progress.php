@@ -15,9 +15,10 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * External API: save verification progress (responses + timings). Keeps status in progress.
+ * External API: save verification progress (responses and timings). Keeps status in progress.
  *
  * @package    plagiarism_dixeo
+ * @author     Josemaria Bolanos <admin@mako.digital>
  * @copyright  2026 Dixeo.com
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -33,9 +34,17 @@ use plagiarism_dixeo\local\author_storage;
 
 defined('MOODLE_INTERNAL') || die();
 
+/**
+ * External API: save verification progress (responses and timings). Keeps status in progress.
+ */
 class save_verification_progress extends external_api {
 
-    public static function execute_parameters() {
+    /**
+     * Parameter description.
+     *
+     * @return \core_external\external_function_parameters
+     */
+    public static function execute_parameters(): \core_external\external_function_parameters {
         return new external_function_parameters([
             'record_id' => new external_value(PARAM_INT, 'Authorship record id.'),
             'responses' => new external_value(PARAM_RAW, 'JSON object question id -> answer.', VALUE_DEFAULT, '{}'),
@@ -43,7 +52,15 @@ class save_verification_progress extends external_api {
         ]);
     }
 
-    public static function execute($recordid, $responses = '{}', $response_timings = '{}') {
+    /**
+     * Save quiz responses and response timings for the given authorship record.
+     *
+     * @param int $recordid Authorship record id.
+     * @param string $responses JSON-encoded question id -> answer map.
+     * @param string $response_timings JSON-encoded timings (test_started_at, current_index, questions).
+     * @return array{success: bool}
+     */
+    public static function execute(int $recordid, string $responses = '{}', string $response_timings = '{}'): array {
         global $USER;
         $params = self::validate_parameters(self::execute_parameters(), [
             'record_id' => $recordid,
@@ -75,7 +92,12 @@ class save_verification_progress extends external_api {
         return ['success' => true];
     }
 
-    public static function execute_returns() {
+    /**
+     * Return value description.
+     *
+     * @return \core_external\external_single_structure
+     */
+    public static function execute_returns(): \core_external\external_single_structure {
         return new external_single_structure([
             'success' => new external_value(PARAM_BOOL, 'Saved.'),
         ], 'Save progress.');

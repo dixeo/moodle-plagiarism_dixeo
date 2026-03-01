@@ -90,6 +90,7 @@ class observer {
 
     /**
      * Handle assign submission updated (content edited). Clear authorship so new content is re-evaluated.
+     * Skip deleting when status is 'submitted' so we do not wipe the record right after assessable_submitted.
      *
      * @param \mod_assign\event\submission_updated $event The event.
      * @return void
@@ -102,8 +103,12 @@ class observer {
             return;
         }
         $eventdata = $event->get_data();
-        $userid = (int) ($eventdata['relateduserid'] ?? $eventdata['userid'] ?? 0);
         $other = $eventdata['other'] ?? [];
+        $status = isset($other['submissionstatus']) ? (string) $other['submissionstatus'] : '';
+        if ($status === 'submitted') {
+            return;
+        }
+        $userid = (int) ($eventdata['relateduserid'] ?? $eventdata['userid'] ?? 0);
         $submissionid = (int) ($other['submissionid'] ?? $eventdata['objectid'] ?? 0);
         if ($userid <= 0 || $submissionid <= 0) {
             return;
