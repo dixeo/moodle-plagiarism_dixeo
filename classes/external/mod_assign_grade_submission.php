@@ -32,6 +32,7 @@ use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
 use plagiarism_dixeo\local\author_storage;
+use plagiarism_dixeo\local\grade_feedback_storage;
 use plagiarism_dixeo\modules\assign;
 
 defined('MOODLE_INTERNAL') || die();
@@ -73,9 +74,21 @@ class mod_assign_grade_submission extends external_api {
 
         $assignmentcontext = assign::get_assignment_context($params['id']);
         $submissiondata = assign::get_submission_data($params['id'], $params['userid']);
-        $submissionid = isset($submissiondata['submission']->id) ? (int) $submissiondata['submission']->id : 0;
+        $submission = $submissiondata['submission'] ?? null;
+        $submissionid = $submission ? (int) $submission->id : 0;
         if ($submissionid <= 0) {
             $submissionid = assign::get_latest_submission_id($params['id'], $params['userid']);
+        }
+        if ($submissionid > 0) {
+            $existing = grade_feedback_storage::get_by_context(
+                (int) $params['userid'],
+                'mod_assign',
+                'submission',
+                $submissionid
+            );
+            if ($existing) {
+                return grade_feedback_storage::record_to_result($existing);
+            }
         }
         $authorship = $submissionid > 0 ? author_storage::get_record_by_context(
             $params['userid'],
@@ -98,6 +111,19 @@ class mod_assign_grade_submission extends external_api {
             ];
         }
 
+        if ($submissionid > 0) {
+            $srcTime = ($submission && isset($submission->timemodified)) ? (int) $submission->timemodified : null;
+            $srcAttempt = ($submission && isset($submission->attemptnumber)) ? (int) $submission->attemptnumber : null;
+            grade_feedback_storage::create_record(
+                (int) $params['userid'],
+                'mod_assign',
+                'submission',
+                $submissionid,
+                $result,
+                $srcTime,
+                $srcAttempt
+            );
+        }
         return $result;
     }
 

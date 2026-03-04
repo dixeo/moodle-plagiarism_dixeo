@@ -125,6 +125,12 @@ class observer {
             self::AREA_SUBMISSION,
             $submissionid
         );
+        \plagiarism_dixeo\local\grade_feedback_storage::delete_by_context(
+            $userid,
+            self::COMPONENT_ASSIGN,
+            self::AREA_SUBMISSION,
+            $submissionid
+        );
     }
 
     /**

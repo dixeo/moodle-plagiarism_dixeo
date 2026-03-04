@@ -867,7 +867,7 @@ EOT;
         if (isset($mapped['error'])) {
             return $mapped;
         }
-        $mapped['analysis'] = self::append_authorship_block_to_analysis($mapped['analysis'] ?? '', $authorship);
+        // Do not append authorship to grading analysis/feedback; it is displayed elsewhere.
         return $mapped;
     }
 

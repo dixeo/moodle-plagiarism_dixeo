@@ -64,11 +64,22 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     }
 
     /**
+     * Remove any existing AI analysis block (so re-apply overwrites cleanly).
+     */
+    function removeExistingAnalysisBlock() {
+        var existing = document.querySelector('.plagiarism-dixeo-grade-analysis');
+        if (existing && existing.parentNode) {
+            existing.parentNode.removeChild(existing);
+        }
+    }
+
+    /**
      * Insert analysis block right above .gradingform.
      *
      * @param {string} analysis HTML or text for the teacher.
      */
     function injectAnalysis(analysis) {
+        removeExistingAnalysisBlock();
         var gradingform = document.querySelector('.gradingform');
         if (!gradingform || !analysis) {
             return;
@@ -278,41 +289,116 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     }
 
     /**
+     * Show confirmation modal: overwrite warning; on confirm run callback, on cancel run cancelCallback.
+     *
+     * @param {Function} onConfirm Called when user clicks Apply (no args).
+     * @param {Function} onCancel Called when user clicks Cancel or closes (no args).
+     */
+    function showGradingConfirmModal(onConfirm, onCancel) {
+        var modalId = 'plagiarism_dixeo_grading_confirm_modal';
+        var existing = document.getElementById(modalId);
+        if (existing && existing.parentNode) {
+            existing.parentNode.removeChild(existing);
+        }
+        Promise.all([
+            Str.get_string('grading_apply_confirm_title', 'plagiarism_dixeo'),
+            Str.get_string('grading_apply_confirm_body', 'plagiarism_dixeo'),
+            Str.get_string('grading_apply_confirm', 'plagiarism_dixeo'),
+            Str.get_string('cancel', 'moodle')
+        ]).then(function(arr) {
+            var title = arr[0];
+            var body = arr[1];
+            var confirmLabel = arr[2];
+            var cancelLabel = arr[3];
+            var wrap = document.createElement('div');
+            wrap.id = modalId;
+            wrap.className = 'modal fade';
+            wrap.setAttribute('role', 'dialog');
+            wrap.innerHTML =
+                '<div class="modal-dialog" role="document">' +
+                '  <div class="modal-content">' +
+                '    <div class="modal-header"><h5 class="modal-title">' + title + '</h5></div>' +
+                '    <div class="modal-body">' + body + '</div>' +
+                '    <div class="modal-footer">' +
+                '      <button type="button" class="btn btn-secondary plagiarism-dixeo-grading-confirm-cancel">' +
+                cancelLabel + '</button>' +
+                '      <button type="button" class="btn btn-primary plagiarism-dixeo-grading-confirm-apply">' +
+                confirmLabel + '</button>' +
+                '    </div>' +
+                '  </div>' +
+                '</div>';
+            document.body.appendChild(wrap);
+            var $m = $(wrap);
+            /**
+             * Remove modal from DOM and unbind hidden.bs.modal.
+             */
+            function cleanup() {
+                $m.off('hidden.bs.modal');
+                if (wrap.parentNode) {
+                    wrap.parentNode.removeChild(wrap);
+                }
+            }
+            wrap.querySelector('.plagiarism-dixeo-grading-confirm-apply').addEventListener('click', function() {
+                $m.modal('hide');
+                cleanup();
+                onConfirm();
+            });
+            wrap.querySelector('.plagiarism-dixeo-grading-confirm-cancel').addEventListener('click', function() {
+                $m.modal('hide');
+            });
+            $m.on('hidden.bs.modal', function() {
+                cleanup();
+                onCancel();
+            });
+            $m.modal({ backdrop: true, keyboard: true });
+        }).catch(function(err) {
+            Notification.exception(err);
+            onCancel();
+        });
+    }
+
+    /**
      * Attach click handler to the Analyze button (grader view).
+     * Shows confirmation modal first; on confirm calls API and applies grading.
      *
      * @param {HTMLButtonElement} analyzeButton
      * @param {string} cmid Course module ID from URL.
      * @param {string} uid User ID from URL.
      */
     function attachAnalyzeClickHandler(analyzeButton, cmid, uid) {
-
         analyzeButton.addEventListener('click', function() {
             analyzeButton.disabled = true;
-
-            Str.get_string('analyzing', 'plagiarism_dixeo').then(function(analyzingMsg) {
-                return showLoadingModal(analyzingMsg);
-            }).then(function() {
-                Ajax.call([{
-                    methodname: 'plagiarism_dixeo_mod_assign_grade_submission',
-                    args: {
-                        id: parseInt(cmid, 10) || 0,
-                        userid: parseInt(uid, 10) || 0
-                    },
-                    done: function(data) {
-                        applyResponse(data);
-                        analyzeButton.disabled = false;
-                        hideLoadingModal();
-                    },
-                    fail: function(err) {
+            showGradingConfirmModal(
+                function() {
+                    Str.get_string('analyzing', 'plagiarism_dixeo').then(function(analyzingMsg) {
+                        return showLoadingModal(analyzingMsg);
+                    }).then(function() {
+                        Ajax.call([{
+                            methodname: 'plagiarism_dixeo_mod_assign_grade_submission',
+                            args: {
+                                id: parseInt(cmid, 10) || 0,
+                                userid: parseInt(uid, 10) || 0
+                            },
+                            done: function(data) {
+                                applyResponse(data);
+                                analyzeButton.disabled = false;
+                                hideLoadingModal();
+                            },
+                            fail: function(err) {
+                                Notification.exception(err);
+                                analyzeButton.disabled = false;
+                                hideLoadingModal();
+                            }
+                        }]);
+                    }).catch(function(err) {
                         Notification.exception(err);
                         analyzeButton.disabled = false;
-                        hideLoadingModal();
-                    }
-                }]);
-            }).catch(function(err) {
-                Notification.exception(err);
-                analyzeButton.disabled = false;
-            });
+                    });
+                },
+                function() {
+                    analyzeButton.disabled = false;
+                }
+            );
         });
     }
 

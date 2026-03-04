@@ -52,6 +52,29 @@
         <KEY NAME="component_area_itemid_userid" TYPE="unique" FIELDS="component, area, itemid, userid"/>
       </KEYS>
     </TABLE>
+    <TABLE NAME="plagiarism_dixeo_grade_feedback" COMMENT="AI grading result per submission attempt (one per submission; reset on submission update)">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="component" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="e.g. mod_assign"/>
+        <FIELD NAME="area" TYPE="char" LENGTH="50" NOTNULL="true" SEQUENCE="false" COMMENT="e.g. submission"/>
+        <FIELD NAME="itemid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="e.g. assign_submission.id"/>
+        <FIELD NAME="source_timemodified" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="source_attempt" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="gradingmethod" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false" COMMENT="simple, guide, rubric"/>
+        <FIELD NAME="analysis" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Teacher analysis (no authorship)"/>
+        <FIELD NAME="feedback" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Student feedback HTML"/>
+        <FIELD NAME="grade" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="false" SEQUENCE="false" COMMENT="Simple grading only"/>
+        <FIELD NAME="criteria" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON array for guide/rubric"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="component_area_itemid_userid" TYPE="unique" FIELDS="component, area, itemid, userid"/>
+      </KEYS>
+    </TABLE>
     <TABLE NAME="plagiarism_dixeo_config" COMMENT="Per-activity config (e.g. use_dixeo)">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>

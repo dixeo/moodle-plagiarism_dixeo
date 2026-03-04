@@ -60,5 +60,34 @@ function xmldb_plagiarism_dixeo_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026022604, 'plagiarism', 'dixeo');
     }
 
+    if ($oldversion < 2026022605) {
+        $table = new xmldb_table('plagiarism_dixeo_grade_feedback');
+
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('component', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('area', XMLDB_TYPE_CHAR, '50', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('itemid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('source_timemodified', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('source_attempt', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('gradingmethod', XMLDB_TYPE_CHAR, '32', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('analysis', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('feedback', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('grade', XMLDB_TYPE_NUMBER, '10, 5', null, null, null, null);
+        $table->add_field('criteria', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+        $table->add_key('component_area_itemid_userid', XMLDB_KEY_UNIQUE, ['component', 'area', 'itemid', 'userid']);
+
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026022605, 'plagiarism', 'dixeo');
+    }
+
     return true;
 }
