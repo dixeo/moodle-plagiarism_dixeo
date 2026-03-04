@@ -76,11 +76,27 @@ class observer {
 
     /**
      * Handle assign submitted (final submit) event.
+     * Runs authorship evaluation when assign_trigger is 'submit', and queues automatic grading when enabled.
      *
      * @param \mod_assign\event\assessable_submitted $event The event.
      * @return void
      */
     public static function assign_submitted(\mod_assign\event\assessable_submitted $event): void {
+        global $CFG;
+
+        $eventdata = $event->get_data();
+        $cmid = (int) ($eventdata['contextinstanceid'] ?? 0);
+        $userid = (int) ($eventdata['relateduserid'] ?? $eventdata['userid'] ?? 0);
+        $submissionid = (int) ($eventdata['objectid'] ?? 0);
+
+        if ($cmid > 0 && $submissionid > 0 && $userid > 0) {
+            require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+            $config = \plagiarism_plugin_dixeo::get_activity_config($cmid);
+            if (!empty($config['enable_auto_grading'])) {
+                \plagiarism_dixeo\task\apply_auto_grade::queue($cmid, $userid, $submissionid);
+            }
+        }
+
         $trigger = get_config('plagiarism_dixeo', 'assign_trigger');
         if ($trigger !== self::ASSIGN_TRIGGER_SUBMIT) {
             return;

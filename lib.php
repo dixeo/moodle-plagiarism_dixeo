@@ -357,6 +357,16 @@ function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
         $mform->setType('use_dixeo', PARAM_ALPHANUM);
         $mform->addHelpButton('use_dixeo', 'use_dixeo', 'plagiarism_dixeo');
 
+        $configauto = $config['enable_auto_grading'] ?? '0';
+        $mform->addElement('select', 'enable_auto_grading', get_string('enable_auto_grading', 'plagiarism_dixeo'), [
+            '0' => get_string('no'),
+            '1' => get_string('yes'),
+        ]);
+        $mform->setDefault('enable_auto_grading', $configauto);
+        $mform->setType('enable_auto_grading', PARAM_ALPHANUM);
+        $mform->addHelpButton('enable_auto_grading', 'enable_auto_grading', 'plagiarism_dixeo');
+        $mform->hideIf('enable_auto_grading', 'use_dixeo', 'eq', '0');
+
         $mform->addElement('select', 'dixeo_show_initial_score', get_string('display_initial_score_visibility', 'plagiarism_dixeo'), $visibilityoptions);
         $mform->setDefault('dixeo_show_initial_score', $initialvis);
         $mform->setType('dixeo_show_initial_score', PARAM_ALPHA);
@@ -375,8 +385,11 @@ function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
         $mform->addHelpButton('dixeo_show_final_score', 'display_final_score_visibility', 'plagiarism_dixeo');
         $mform->hideIf('dixeo_show_final_score', 'use_dixeo', 'eq', '0');
     } else {
+        $configauto = $config['enable_auto_grading'] ?? '0';
         $mform->addElement('hidden', 'use_dixeo', $use);
         $mform->setType('use_dixeo', PARAM_ALPHANUM);
+        $mform->addElement('hidden', 'enable_auto_grading', $configauto);
+        $mform->setType('enable_auto_grading', PARAM_ALPHANUM);
         $mform->addElement('hidden', 'dixeo_show_initial_score', $initialvis);
         $mform->setType('dixeo_show_initial_score', PARAM_ALPHA);
         $mform->addElement('hidden', 'dixeo_show_test_score', $testvis);
@@ -423,12 +436,14 @@ function plagiarism_dixeo_coursemodule_edit_post_actions($data, $course) {
     }
 
     $use = $data->use_dixeo ?? optional_param('use_dixeo', isset($existingbykey['use_dixeo']) ? $existingbykey['use_dixeo']->value : '0', PARAM_ALPHANUM);
+    $autograd = $data->enable_auto_grading ?? optional_param('enable_auto_grading', isset($existingbykey['enable_auto_grading']) ? $existingbykey['enable_auto_grading']->value : '0', PARAM_ALPHANUM);
     $initialvis = $data->dixeo_show_initial_score ?? optional_param('dixeo_show_initial_score', isset($existingbykey['show_initial_score']) ? $existingbykey['show_initial_score']->value : 'score', PARAM_ALPHA);
     $testvis = $data->dixeo_show_test_score ?? optional_param('dixeo_show_test_score', isset($existingbykey['show_test_score']) ? $existingbykey['show_test_score']->value : 'score', PARAM_ALPHA);
     $finalvis = $data->dixeo_show_final_score ?? optional_param('dixeo_show_final_score', isset($existingbykey['show_final_score']) ? $existingbykey['show_final_score']->value : 'score', PARAM_ALPHA);
 
     $tosave = [
         'use_dixeo' => (string) $use,
+        'enable_auto_grading' => (string) $autograd,
         'show_initial_score' => (string) $initialvis,
         'show_test_score' => (string) $testvis,
         'show_final_score' => (string) $finalvis,
@@ -445,6 +460,7 @@ function plagiarism_dixeo_coursemodule_edit_post_actions($data, $course) {
     }
 
     $data->use_dixeo = $tosave['use_dixeo'];
+    $data->enable_auto_grading = $tosave['enable_auto_grading'];
     $data->dixeo_show_initial_score = $tosave['show_initial_score'];
     $data->dixeo_show_test_score = $tosave['show_test_score'];
     $data->dixeo_show_final_score = $tosave['show_final_score'];

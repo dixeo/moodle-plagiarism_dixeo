@@ -87,7 +87,9 @@ class mod_assign_grade_submission extends external_api {
                 $submissionid
             );
             if ($existing) {
-                return grade_feedback_storage::record_to_result($existing);
+                $out = grade_feedback_storage::record_to_result($existing);
+                $out['feedback'] = assign::add_feedback_disclaimer($out['feedback']);
+                return $out;
             }
         }
         $authorship = $submissionid > 0 ? author_storage::get_record_by_context(
@@ -124,6 +126,7 @@ class mod_assign_grade_submission extends external_api {
                 $srcAttempt
             );
         }
+        $result['feedback'] = assign::add_feedback_disclaimer($result['feedback']);
         return $result;
     }
 

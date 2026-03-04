@@ -962,4 +962,84 @@ EOT;
         $block .= '</div>';
         return $analysis . $block;
     }
+
+    /**
+     * Prepend the AI grading disclaimer to feedback comments (for teacher and student).
+     *
+     * @param string $feedback Raw feedback HTML from AI.
+     * @return string Feedback with disclaimer prepended.
+     */
+    public static function add_feedback_disclaimer(string $feedback): string {
+        $disclaimer = get_string('grading_ai_disclaimer', 'plagiarism_dixeo');
+        $block = '<p class="plagiarism-dixeo-grading-disclaimer"><em>' . s($disclaimer) . '</em></p>';
+        return $block . $feedback;
+    }
+
+    /**
+     * Apply an AI grading result to the assignment (save grade and feedback to Moodle).
+     * Used by automatic grading after submission. Requires mod/assign/locallib.php.
+     *
+     * @param int $cmid Course module id.
+     * @param int $userid User id (student being graded).
+     * @param int $submissionid Assign submission id.
+     * @param array $result Keys: gradingmethod, feedback; optional grade, criteria.
+     * @return bool True if save_grade succeeded.
+     */
+    public static function apply_grade_result(int $cmid, int $userid, int $submissionid, array $result): bool {
+        global $CFG, $DB;
+
+        $cm = get_coursemodule_from_id('assign', $cmid, 0, true, MUST_EXIST);
+        $course = get_course($cm->course);
+        $context = context_module::instance($cm->id);
+
+        require_once($CFG->dirroot . '/mod/assign/locallib.php');
+
+        $submission = $DB->get_record('assign_submission', [
+            'id'      => $submissionid,
+            'userid'  => $userid,
+        ], 'attemptnumber', IGNORE_MISSING);
+        if (!$submission) {
+            return false;
+        }
+
+        $assign = new \assign($context, $cm, $course);
+
+        $data = new \stdClass();
+        $data->attemptnumber = (int) $submission->attemptnumber;
+        $data->assignfeedbackcomments_editor = [
+            'text'   => self::add_feedback_disclaimer((string) ($result['feedback'] ?? '')),
+            'format' => FORMAT_HTML,
+        ];
+
+        if (($result['gradingmethod'] ?? '') === 'simple') {
+            $data->grade = isset($result['grade']) ? (float) $result['grade'] : null;
+        } else if (($result['gradingmethod'] ?? '') === 'guide' && !empty($result['criteria'])) {
+            $data->advancedgrading = ['criteria' => []];
+            foreach ($result['criteria'] as $c) {
+                $id = (int) ($c['id'] ?? 0);
+                $data->advancedgrading['criteria'][$id] = [
+                    'score'  => (float) ($c['score'] ?? 0),
+                    'remark' => (string) ($c['remark'] ?? ''),
+                ];
+            }
+        } else if (($result['gradingmethod'] ?? '') === 'rubric' && !empty($result['criteria'])) {
+            $data->advancedgrading = ['criteria' => []];
+            foreach ($result['criteria'] as $c) {
+                $id = (int) ($c['id'] ?? 0);
+                $data->advancedgrading['criteria'][$id] = [
+                    'levelid' => (int) ($c['levelid'] ?? 0),
+                    'remark'  => (string) ($c['remark'] ?? ''),
+                ];
+            }
+        }
+
+        $data->sendstudentnotifications = true;
+
+        try {
+            $assign->save_grade($userid, $data);
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
 }
