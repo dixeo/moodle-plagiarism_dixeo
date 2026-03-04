@@ -56,6 +56,29 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     }
 
     /**
+     * Insert the feedback/response HTML container into the page (after header, or form start, or region-main).
+     *
+     * @param {string} html HTML fragment for the feedback container.
+     */
+    function insertFeedbackContainer(html) {
+        var container = document.createElement('div');
+        container.id = RESPONSE_CONTAINER_ID;
+        container.innerHTML = html;
+        var header = document.getElementById('id_submissionheader');
+        var form = findAssignForm();
+        var regionMain = document.getElementById('region-main');
+        if (header) {
+            header.parentNode.insertBefore(container, header.nextSibling);
+        } else if (form) {
+            form.insertBefore(container, form.firstChild);
+        } else if (regionMain) {
+            regionMain.insertBefore(container, regionMain.firstChild);
+        } else {
+            document.body.appendChild(container);
+        }
+    }
+
+    /**
      * Hide the loading modal.
      */
     function hideLoadingModal() {
@@ -134,8 +157,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     }
 
     /**
-     * Run the pre-submission behavior: add Analyze button (id from URL), submit listener if form present,
-     * and verification modal trigger for badges (verification required / in progress).
+     * Run the pre-submission behavior: check for existing feedback; if none, add Analyze button (id from URL),
+     * submit listener if form present, and verification modal trigger for badges.
      */
     function run() {
         var cmid = getUrlParam('id').trim();
@@ -172,6 +195,32 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             }
         }
 
+        var cmidInt = parseInt(cmid, 10) || 0;
+        Ajax.call([{
+            methodname: 'plagiarism_dixeo_get_presubmission_status',
+            args: { id: cmidInt },
+            done: function(data) {
+                if (data && data.has_feedback && data.feedback_html) {
+                    insertFeedbackContainer(data.feedback_html);
+                    return;
+                }
+                addAnalyzeButtonAndSubmitHandler(buttonContainer, submitButton, form, cmidInt);
+            },
+            fail: function() {
+                addAnalyzeButtonAndSubmitHandler(buttonContainer, submitButton, form, cmidInt);
+            }
+        }]);
+    }
+
+    /**
+     * Add the Analyze button and attach submit handler (when no existing feedback).
+     *
+     * @param {HTMLElement} buttonContainer
+     * @param {HTMLElement|null} submitButton
+     * @param {HTMLFormElement} form
+     * @param {number} cmid
+     */
+    function addAnalyzeButtonAndSubmitHandler(buttonContainer, submitButton, form, cmid) {
         Str.get_string('analyze', 'plagiarism_dixeo').then(function(analyzeLabel) {
             var analyzeButton = document.createElement('button');
             analyzeButton.type = 'button';
@@ -193,7 +242,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             } else {
                 buttonContainer.appendChild(analyzeButton);
             }
-            attachAnalyzeHandler(analyzeButton, parseInt(cmid, 10));
+            attachAnalyzeHandler(analyzeButton, cmid);
             if (form) {
                 attachSubmitHandler(form, cmid);
             }
@@ -220,21 +269,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                     methodname: 'plagiarism_dixeo_mod_assign_pre_submission',
                     args: { id: cmid },
                     done: function(html) {
-                        var container = document.createElement('div');
-                        container.id = RESPONSE_CONTAINER_ID;
-                        container.innerHTML = html;
-                        var header = document.getElementById('id_submissionheader');
-                        var form = findAssignForm();
-                        var regionMain = document.getElementById('region-main');
-                        if (header) {
-                            header.parentNode.insertBefore(container, header.nextSibling);
-                        } else if (form) {
-                            form.insertBefore(container, form.firstChild);
-                        } else if (regionMain) {
-                            regionMain.insertBefore(container, regionMain.firstChild);
-                        } else {
-                            document.body.appendChild(container);
-                        }
+                        insertFeedbackContainer(html);
                         analyzeButton.disabled = false;
                         hideLoadingModal();
                     },

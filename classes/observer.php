@@ -119,6 +119,12 @@ class observer {
             self::AREA_SUBMISSION,
             $submissionid
         );
+        \plagiarism_dixeo\local\presubmission_feedback_storage::delete_by_context(
+            $userid,
+            self::COMPONENT_ASSIGN,
+            self::AREA_SUBMISSION,
+            $submissionid
+        );
     }
 
     /**

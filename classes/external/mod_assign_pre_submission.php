@@ -30,6 +30,7 @@ use context_user;
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_value;
+use plagiarism_dixeo\local\presubmission_feedback_storage;
 use plagiarism_dixeo\modules\assign;
 
 defined('MOODLE_INTERNAL') || die();
@@ -73,6 +74,22 @@ class mod_assign_pre_submission extends external_api {
         $assignmentcontext = assign::get_assignment_context($params['id']);
         $submissiondata = assign::get_submission_data($params['id'], $USER->id);
 
+        $submission = $submissiondata['submission'] ?? null;
+        $itemid = $submission ? (int) $submission->id : 0;
+        if ($itemid <= 0) {
+            return self::feedback_error_html(get_string('assign_pre_submission_context_required', 'plagiarism_dixeo'));
+        }
+
+        $existing = presubmission_feedback_storage::get_by_context(
+            (int) $USER->id,
+            'mod_assign',
+            'submission',
+            $itemid
+        );
+        if ($existing && trim((string) ($existing->feedback ?? '')) !== '') {
+            return self::feedback_html_wrapper((string) $existing->feedback);
+        }
+
         $evaluation = assign::evaluate(
             $assignmentcontext,
             $submissiondata,
@@ -83,7 +100,18 @@ class mod_assign_pre_submission extends external_api {
             return self::feedback_error_html($evaluation['error']);
         }
 
-        return self::feedback_html_wrapper($evaluation['feedback_html'] ?? '');
+        $feedbackhtml = $evaluation['feedback_html'] ?? '';
+        presubmission_feedback_storage::create_record(
+            (int) $USER->id,
+            'mod_assign',
+            'submission',
+            $itemid,
+            $feedbackhtml,
+            isset($submission->timemodified) ? (int) $submission->timemodified : null,
+            isset($submission->attemptnumber) ? (int) $submission->attemptnumber : null
+        );
+
+        return self::feedback_html_wrapper($feedbackhtml);
     }
 
     /**
@@ -92,7 +120,7 @@ class mod_assign_pre_submission extends external_api {
      * @param string $html Raw HTML from the AI.
      * @return string
      */
-    protected static function feedback_html_wrapper(string $html): string {
+    public static function feedback_html_wrapper(string $html): string {
         $context = context_system::instance();
         $clean = format_text($html, FORMAT_HTML, [
             'para'    => true,

@@ -36,6 +36,16 @@ $functions = [
         'capabilities'  => 'plagiarism/dixeo:mod_assign_pre_submission',
         'loginrequired' => true,
     ],
+    'plagiarism_dixeo_get_presubmission_status' => [
+        'classname'     => 'plagiarism_dixeo\external\get_presubmission_status',
+        'methodname'    => 'execute',
+        'classpath'     => '',
+        'description'   => 'Get pre-submission feedback status for current user (has_feedback and feedback_html for display).',
+        'type'          => 'read',
+        'ajax'          => true,
+        'capabilities'  => 'plagiarism/dixeo:mod_assign_pre_submission',
+        'loginrequired' => true,
+    ],
     'plagiarism_dixeo_mod_assign_grade_submission' => [
         'classname'     => 'plagiarism_dixeo\external\mod_assign_grade_submission',
         'methodname'    => 'execute',
