@@ -100,6 +100,44 @@ class grade_feedback_storage {
     }
 
     /**
+     * Update an existing grade feedback record with a new result (e.g. task retry or duplicate queue).
+     *
+     * @param int $id Record id.
+     * @param array $result Keys: gradingmethod, analysis, feedback; optional grade, criteria (array).
+     * @param int|null $source_timemodified
+     * @param int|null $source_attempt
+     * @return bool Success.
+     */
+    public static function update_record(
+        int $id,
+        array $result,
+        ?int $source_timemodified = null,
+        ?int $source_attempt = null
+    ): bool {
+        global $DB;
+        $record = $DB->get_record('plagiarism_dixeo_grade_feedback', ['id' => $id]);
+        if (!$record) {
+            return false;
+        }
+        $record->timemodified = time();
+        $record->gradingmethod = $result['gradingmethod'] ?? 'simple';
+        $record->analysis = $result['analysis'] ?? '';
+        $record->feedback = $result['feedback'] ?? '';
+        $record->grade = isset($result['grade']) ? (float) $result['grade'] : null;
+        $record->criteria = null;
+        if (isset($result['criteria']) && is_array($result['criteria'])) {
+            $record->criteria = json_encode($result['criteria']);
+        }
+        if ($source_timemodified !== null) {
+            $record->source_timemodified = $source_timemodified;
+        }
+        if ($source_attempt !== null) {
+            $record->source_attempt = $source_attempt;
+        }
+        return $DB->update_record('plagiarism_dixeo_grade_feedback', $record);
+    }
+
+    /**
      * Delete the grade feedback record for a given context (e.g. when submission is updated).
      *
      * @param int $userid User id.

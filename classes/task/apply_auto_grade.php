@@ -93,17 +93,40 @@ class apply_auto_grade extends \core\task\adhoc_task {
             return;
         }
 
-        \plagiarism_dixeo\local\grade_feedback_storage::create_record(
+        $srcTime = isset($submission->timemodified) ? (int) $submission->timemodified : null;
+        $srcAttempt = isset($submission->attemptnumber) ? (int) $submission->attemptnumber : null;
+        $existing = \plagiarism_dixeo\local\grade_feedback_storage::get_by_context(
             $userid,
             'mod_assign',
             'submission',
-            $submissionid,
-            $result,
-            isset($submission->timemodified) ? (int) $submission->timemodified : null,
-            isset($submission->attemptnumber) ? (int) $submission->attemptnumber : null
+            $submissionid
         );
+        if ($existing) {
+            \plagiarism_dixeo\local\grade_feedback_storage::update_record(
+                (int) $existing->id,
+                $result,
+                $srcTime,
+                $srcAttempt
+            );
+        } else {
+            \plagiarism_dixeo\local\grade_feedback_storage::create_record(
+                $userid,
+                'mod_assign',
+                'submission',
+                $submissionid,
+                $result,
+                $srcTime,
+                $srcAttempt
+            );
+        }
 
-        \plagiarism_dixeo\modules\assign::apply_grade_result($cmid, $userid, $submissionid, $result);
+        try {
+            \plagiarism_dixeo\modules\assign::apply_grade_result($cmid, $userid, $submissionid, $result);
+        } catch (\Throwable $e) {
+            mtrace('apply_auto_grade: apply_grade_result exception: ' . $e->getMessage(), '');
+            mtrace('apply_auto_grade: trace: ' . $e->getTraceAsString(), '');
+            throw $e;
+        }
     }
 
     /**
