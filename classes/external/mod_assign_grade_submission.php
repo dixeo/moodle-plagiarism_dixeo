@@ -106,11 +106,16 @@ class mod_assign_grade_submission extends external_api {
         );
 
         if (!empty($result['error'])) {
-            return [
-                'gradingmethod' => $assignmentcontext['grading_method'] ?? 'simple',
+            $method = $assignmentcontext['grading_method'] ?? 'simple';
+            $out = [
+                'gradingmethod' => $method,
                 'analysis'      => $result['error'],
                 'feedback'      => '',
             ];
+            if ($method === 'guide' || $method === 'rubric') {
+                $out['criteria'] = [];
+            }
+            return $out;
         }
 
         if ($submissionid > 0) {

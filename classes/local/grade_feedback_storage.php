@@ -180,7 +180,10 @@ class grade_feedback_storage {
         if (isset($record->grade) && $record->grade !== null && $record->grade !== '') {
             $out['grade'] = (float) $record->grade;
         }
-        if ($criteria !== null) {
+        $method = $out['gradingmethod'];
+        if ($method === 'guide' || $method === 'rubric') {
+            $out['criteria'] = is_array($criteria) ? $criteria : [];
+        } else if ($criteria !== null) {
             $out['criteria'] = $criteria;
         }
         return $out;

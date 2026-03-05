@@ -365,7 +365,7 @@ Do not invent or hallucinate grades, scores, analysis, or feedback. If you canno
 
 When you do have access to the submission content, evaluate it against the assignment description, instructions, and grading criteria provided below. Consider both strengths and weaknesses. Do not be uniformly positive—give an honest assessment: praise what is done well and clearly identify what is missing, unclear, or below expectations. Be constructive but direct.
 
-You must respond with a JSON object: "analysis" (string), "feedback" (HTML string for the student), and either "grade" (simple) or "criteria" (guide/rubric). Each criterion object must have "id" (use the exact criterion ID from the context), and either "score" (guide, within max) or "levelid" (rubric, use an exact level ID from the context). Include per-criterion comments in the "remark" key (string). Use valid HTML in feedback only: <p>, <ul>, <li>, <strong>, <em>. No markdown.
+You must respond with a JSON object: "analysis" (string), "feedback" (HTML string for the student), and either "grade" (simple) or "criteria" (marking guide/rubric). For marking guide or rubric grading you must always include the "criteria" key: an array with exactly one object per criterion listed in the context, in the same order. Each criterion object must have "id" (the exact criterion ID from the context), "remark" (string), and either "score" (guide, within max) or "levelid" (rubric, exact level ID from the context). Do not omit "criteria" when the assignment uses a marking guide or rubric. Use valid HTML in feedback only: <p>, <ul>, <li>, <strong>, <em>. No markdown.
 EOT;
 
     /** When authorship data is provided: instruct the AI to consider low confidence in grading. */
@@ -561,7 +561,7 @@ EOT;
 
         $criteria = $context['criteria'] ?? [];
         if (!empty($criteria)) {
-            $lines[] = 'Criteria (use these exact IDs in your JSON response):';
+            $lines[] = 'Your JSON response must include a "criteria" array with exactly ' . count($criteria) . ' object(s), one per criterion below. Use the exact "id" and (for rubric) "level id" numbers. These are database IDs and can be any positive integers (e.g. 47, 48), not 1-based positions.';
             foreach ($criteria as $i => $c) {
                 $id = (int) ($c['id'] ?? $i);
                 if ($gradingmethod === 'guide') {
@@ -569,8 +569,8 @@ EOT;
                     $max = isset($c['maxscore']) ? (float) $c['maxscore'] : 0;
                     $lines[] = '  - id: ' . $id . ', shortname: ' . $short . ', maxscore: ' . $max . ', description: ' . ($c['description'] ?? '');
                 } else {
-                    $lines[] = '  - id: ' . $id . ', description: ' . ($c['description'] ?? '');
                     $levels = $c['levels'] ?? [];
+                    $lines[] = '  - id: ' . $id . ', description: ' . ($c['description'] ?? '');
                     foreach ($levels as $l) {
                         $lid = (int) ($l['id'] ?? 0);
                         $score = isset($l['score']) ? (float) $l['score'] : 0;
@@ -729,7 +729,26 @@ EOT;
         }
 
         $rawcriteria = $decoded['criteria'] ?? [];
-        if (!is_array($rawcriteria) || count($rawcriteria) !== $expectedcount) {
+        if (!is_array($rawcriteria)) {
+            $rawcriteria = [];
+        }
+        if (count($rawcriteria) !== $expectedcount) {
+            if (count($rawcriteria) === 0 && $expectedcount > 0 && trim((string) ($decoded['analysis'] ?? '')) !== '') {
+                // AI returned analysis/feedback but no criteria; fill default criteria so response is still usable.
+                $mapped = [];
+                foreach ($criteriactx as $c) {
+                    $id = (int) $c['id'];
+                    if ($gradingmethod === 'guide') {
+                        $mapped[] = ['id' => $id, 'remark' => '', 'score' => 0];
+                    } else {
+                        $levelsordered = $c['levels'] ?? [];
+                        $levelid = !empty($levelsordered) ? (int) $levelsordered[0]['id'] : 0;
+                        $mapped[] = ['id' => $id, 'remark' => '', 'levelid' => $levelid];
+                    }
+                }
+                $result['criteria'] = $mapped;
+                return $result;
+            }
             return ['error' => get_string('grading_error_criteria_count', 'plagiarism_dixeo',
                 (object) ['got' => count($rawcriteria), 'expected' => $expectedcount])];
         }
@@ -738,10 +757,15 @@ EOT;
             $idtoctx[(int) $c['id']] = $c;
         }
         $mapped = [];
-        foreach ($rawcriteria as $item) {
+        foreach ($rawcriteria as $idx => $item) {
             $id = isset($item['id']) ? (int) $item['id'] : 0;
             if (!isset($idtoctx[$id])) {
-                return ['error' => get_string('grading_error_invalid_criterion', 'plagiarism_dixeo', $id)];
+                // AI may return 1-based criterion index (1 = first, 2 = second, ...) instead of DB id.
+                if (isset($criteriactx[$idx])) {
+                    $id = (int) $criteriactx[$idx]['id'];
+                } else {
+                    return ['error' => get_string('grading_error_invalid_criterion', 'plagiarism_dixeo', $item['id'] ?? $idx)];
+                }
             }
             $cctx = $idtoctx[$id];
             $remark = trim((string) ($item['remark'] ?? $item['comment'] ?? $item['feedback'] ?? $item['comments'] ?? ''));
@@ -751,14 +775,21 @@ EOT;
                 $score = max(0, min($maxscore, $score));
                 $mapped[] = ['id' => $id, 'remark' => $remark, 'score' => $score];
             } else {
+                $levelsordered = $cctx['levels'] ?? [];
                 $levelids = [];
-                foreach ($cctx['levels'] ?? [] as $l) {
+                foreach ($levelsordered as $l) {
                     $levelids[(int) $l['id']] = true;
                 }
                 $levelid = isset($item['levelid']) ? (int) $item['levelid'] : 0;
                 if (!isset($levelids[$levelid])) {
-                    return ['error' => get_string('grading_error_invalid_level', 'plagiarism_dixeo',
-                        (object) ['levelid' => $levelid, 'criterionid' => $id])];
+                    // AI may return 1-based level index (1 = first level, 2 = second, ...) instead of DB id.
+                    $numlevels = count($levelsordered);
+                    if ($numlevels > 0 && $levelid >= 1 && $levelid <= $numlevels) {
+                        $levelid = (int) $levelsordered[$levelid - 1]['id'];
+                    } else {
+                        return ['error' => get_string('grading_error_invalid_level', 'plagiarism_dixeo',
+                            (object) ['levelid' => $item['levelid'], 'criterionid' => $id])];
+                    }
                 }
                 $mapped[] = ['id' => $id, 'remark' => $remark, 'levelid' => $levelid];
             }
