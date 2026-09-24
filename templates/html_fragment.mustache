@@ -1,0 +1,20 @@
+{{!
+    @template plagiarism_dixeo/html_fragment
+
+    Renders a sanitized HTML fragment with optional CSS classes and aria label.
+
+    Context variables required for this template:
+    * html - string - Safe HTML content (already formatted server-side)
+    * classes - string - CSS classes for the wrapper (optional)
+    * arialabel - string - Accessible name when set (optional)
+
+    Example context (json):
+    {
+        "html": "<p>Safe fragment</p>",
+        "classes": "alert alert-info",
+        "arialabel": "AI analysis"
+    }
+}}
+<div class="{{classes}}"{{#arialabel}} role="region" aria-label="{{arialabel}}"{{/arialabel}}>
+{{{html}}}
+</div>

@@ -1,14 +1,14 @@
 /**
- * Mod assign grade submission: adds an Analyze button and injects AI grading result into the grader form.
+ * Analyze button and AI grading inject on mod/assign grader view.
  *
  * @module     plagiarism_dixeo/mod_assign_grade_submission
- * @author     Josemaria Bolanos <admin@mako.digital>
- * @copyright  2025
+ * @copyright  2026 Dixeo (contact@dixeo.com)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define(['jquery', 'core/ajax', 'core/notification', 'core/str', 'core/templates', 'core/loadingicon'],
-function($, Ajax, Notification, Str, Templates, LoadingIcon) {
+define(['jquery', 'core/ajax', 'core/notification', 'core/str', 'core/templates', 'core/loadingicon',
+    'plagiarism_dixeo/assign_job_poller'],
+function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
 
     var LOADING_MODAL_ID = 'plagiarism_dixeo_loading_modal';
 
@@ -32,7 +32,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     function showLoadingModal(message) {
         var existing = document.getElementById(LOADING_MODAL_ID);
         if (existing) {
-            var textEl = existing.querySelector('.plagiarism-dixeo-modal-text');
+            var textEl = existing.querySelector('.local-dixeo-ux-modal-text');
             if (textEl) {
                 textEl.textContent = message;
             }
@@ -44,7 +44,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                 $existing.modal('show');
             });
         }
-        return Templates.render('plagiarism_dixeo/loading_modal', { message: message }).then(function(html, js) {
+        return Templates.render('plagiarism_dixeo/loading_modal', {message: message}).then(function(html, js) {
             var wrapper = document.createElement('div');
             wrapper.innerHTML = html.trim();
             var modal = wrapper.firstChild;
@@ -52,44 +52,44 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             if (js) {
                 Templates.runTemplateJS(js);
             }
-            LoadingIcon.addIconToContainer(modal.querySelector('.plagiarism-dixeo-modal-spinner'));
+            LoadingIcon.addIconToContainer(modal.querySelector('.local-dixeo-ux-modal-spinner'));
             var $modal = $(modal);
             return new Promise(function(resolve) {
                 $modal.one('shown.bs.modal', function() {
                     resolve($modal);
                 });
-                $modal.modal({ backdrop: 'static', keyboard: false });
+                $modal.modal({backdrop: 'static', keyboard: false});
             });
         });
     }
 
     /**
-     * Remove any existing AI analysis block (so re-apply overwrites cleanly).
-     */
-    function removeExistingAnalysisBlock() {
-        var existing = document.querySelector('.plagiarism-dixeo-grade-analysis');
-        if (existing && existing.parentNode) {
-            existing.parentNode.removeChild(existing);
-        }
-    }
-
-    /**
      * Insert analysis block right above .gradingform.
      *
-     * @param {string} analysis HTML or text for the teacher.
+     * @param {string} analysis HTML or text for the teacher (server-sanitized).
+     * @returns {Promise}
      */
     function injectAnalysis(analysis) {
-        removeExistingAnalysisBlock();
         var gradingform = document.querySelector('.gradingform');
         if (!gradingform || !analysis) {
-            return;
+            return Promise.resolve();
         }
-        var wrap = document.createElement('div');
-        wrap.className = 'plagiarism-dixeo-grade-analysis alert alert-info';
-        wrap.setAttribute('role', 'region');
-        wrap.setAttribute('aria-label', 'AI analysis');
-        wrap.innerHTML = typeof analysis === 'string' ? analysis : '';
-        gradingform.parentNode.insertBefore(wrap, gradingform);
+        return Str.get_string('analysis_aria_label', 'plagiarism_dixeo').then(function(ariaLabel) {
+            return Templates.render('plagiarism_dixeo/html_fragment', {
+                html: analysis,
+                classes: 'local-dixeo-ux-grade-analysis alert alert-info',
+                arialabel: ariaLabel
+            });
+        }).then(function(html, js) {
+            var wrap = document.createElement('div');
+            wrap.innerHTML = html.trim();
+            var node = wrap.firstChild;
+            gradingform.parentNode.insertBefore(node, gradingform);
+            if (js) {
+                Templates.runTemplateJS(js);
+            }
+            return null;
+        });
     }
 
     /**
@@ -109,8 +109,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         var textarea = fitem.querySelector('textarea[id="id_assignfeedbackcomments_editor"]');
         if (textarea) {
             textarea.value = feedbackHtml;
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+            textarea.dispatchEvent(new Event('input', {bubbles: true}));
+            textarea.dispatchEvent(new Event('change', {bubbles: true}));
         }
         // Moodle 4+ TinyMCE (editor_tiny): set content in the editor so the visible UI updates and sync to textarea.
         require(['editor_tiny/editor'], function(editorTiny) {
@@ -122,7 +122,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                 }
             }
         }, function() {
-            // editor_tiny not available (e.g. Atto or no JS editor); textarea already set above.
+            // Editor_tiny not available (e.g. Atto or no JS editor); textarea already set above.
         });
     }
 
@@ -135,8 +135,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         var el = document.getElementById('id_grade');
         if (el && typeof grade === 'number' && !isNaN(grade)) {
             el.value = String(grade);
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.dispatchEvent(new Event('input', {bubbles: true}));
+            el.dispatchEvent(new Event('change', {bubbles: true}));
         }
     }
 
@@ -157,16 +157,55 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             var remarkEl = document.querySelector('[name="advancedgrading[criteria][' + critId + '][remark]"]');
             if (remarkEl && c.remark !== null && c.remark !== undefined) {
                 remarkEl.value = c.remark;
-                remarkEl.dispatchEvent(new Event('input', { bubbles: true }));
-                remarkEl.dispatchEvent(new Event('change', { bubbles: true }));
+                remarkEl.dispatchEvent(new Event('input', {bubbles: true}));
+                remarkEl.dispatchEvent(new Event('change', {bubbles: true}));
             }
             var scoreEl = document.querySelector('[name="advancedgrading[criteria][' + critId + '][score]"]');
             if (scoreEl && c.score !== null && c.score !== undefined && !isNaN(Number(c.score))) {
                 scoreEl.value = String(c.score);
-                scoreEl.dispatchEvent(new Event('input', { bubbles: true }));
-                scoreEl.dispatchEvent(new Event('change', { bubbles: true }));
+                scoreEl.dispatchEvent(new Event('input', {bubbles: true}));
+                scoreEl.dispatchEvent(new Event('change', {bubbles: true}));
             }
         });
+    }
+
+    /**
+     * Clear checked state on sibling rubric level cells.
+     *
+     * @param {HTMLElement} levelCell Selected level cell.
+     */
+    function clearSiblingLevelCells(levelCell) {
+        var row = levelCell.parentElement;
+        if (!row) {
+            return;
+        }
+        var siblingLevels = row.querySelectorAll('td.level');
+        for (var i = 0; i < siblingLevels.length; i++) {
+            if (siblingLevels[i] !== levelCell) {
+                siblingLevels[i].classList.remove('checked');
+                siblingLevels[i].setAttribute('aria-checked', 'false');
+            }
+        }
+    }
+
+    /**
+     * Apply checked state to a rubric level radio and its cell UI.
+     *
+     * @param {HTMLInputElement} radio Level radio input.
+     */
+    function selectRubricLevel(radio) {
+        if (radio.checked) {
+            return;
+        }
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change', {bubbles: true}));
+        var levelCell = radio.closest('td.level');
+        if (!levelCell) {
+            return;
+        }
+        levelCell.classList.add('checked');
+        levelCell.setAttribute('aria-checked', 'true');
+        clearSiblingLevelCells(levelCell);
     }
 
     /**
@@ -186,34 +225,18 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             var remarkEl = document.querySelector('[name="advancedgrading[criteria][' + critId + '][remark]"]');
             if (remarkEl && c.remark !== null && c.remark !== undefined) {
                 remarkEl.value = c.remark;
-                remarkEl.dispatchEvent(new Event('input', { bubbles: true }));
-                remarkEl.dispatchEvent(new Event('change', { bubbles: true }));
+                remarkEl.dispatchEvent(new Event('input', {bubbles: true}));
+                remarkEl.dispatchEvent(new Event('change', {bubbles: true}));
             }
             var levelId = c.levelid;
-            if (levelId !== null && levelId !== undefined) {
-                var radio = document.querySelector(
-                    '[name="advancedgrading[criteria][' + critId + '][levelid]"][value="' + levelId + '"]'
-                );
-                if (radio && !radio.checked) {
-                    radio.checked = true;
-                    radio.dispatchEvent(new Event('change', { bubbles: true }));
-                    // Sync legacy rubric UI: level cell (td.level) gets "checked" class and aria-checked like manual selection.
-                    var levelCell = radio.closest('td.level');
-                    if (levelCell) {
-                        levelCell.classList.add('checked');
-                        levelCell.setAttribute('aria-checked', 'true');
-                        var row = levelCell.parentElement;
-                        if (row) {
-                            var siblingLevels = row.querySelectorAll('td.level');
-                            for (var i = 0; i < siblingLevels.length; i++) {
-                                if (siblingLevels[i] !== levelCell) {
-                                    siblingLevels[i].classList.remove('checked');
-                                    siblingLevels[i].setAttribute('aria-checked', 'false');
-                                }
-                            }
-                        }
-                    }
-                }
+            if (levelId === null || levelId === undefined) {
+                return;
+            }
+            var radio = document.querySelector(
+                '[name="advancedgrading[criteria][' + critId + '][levelid]"][value="' + levelId + '"]'
+            );
+            if (radio) {
+                selectRubricLevel(radio);
             }
         });
     }
@@ -222,22 +245,25 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
      * Apply the full grading response to the page.
      *
      * @param {Object} data Response from the web service.
+     * @returns {Promise}
      */
     function applyResponse(data) {
         if (!data) {
-            return;
+            return Promise.resolve();
         }
-        injectAnalysis(data.analysis);
-        injectFeedback(data.feedback);
-        if (data.gradingmethod === 'simple' && data.grade !== null && data.grade !== undefined) {
-            injectGrade(Number(data.grade));
-        }
-        if (data.gradingmethod === 'guide' && data.criteria) {
-            injectGuideCriteria(data.criteria);
-        }
-        if (data.gradingmethod === 'rubric' && data.criteria) {
-            injectRubricCriteria(data.criteria);
-        }
+        return injectAnalysis(data.analysis).then(function() {
+            injectFeedback(data.feedback);
+            if (data.gradingmethod === 'simple' && data.grade !== null && data.grade !== undefined) {
+                injectGrade(Number(data.grade));
+            }
+            if (data.gradingmethod === 'guide' && data.criteria) {
+                injectGuideCriteria(data.criteria);
+            }
+            if (data.gradingmethod === 'rubric' && data.criteria) {
+                injectRubricCriteria(data.criteria);
+            }
+            return null;
+        });
     }
 
     /**
@@ -285,120 +311,66 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
 
             saveButton.parentNode.insertBefore(analyzeButton, saveButton);
             attachAnalyzeClickHandler(analyzeButton, cmid, uid);
-        });
-    }
-
-    /**
-     * Show confirmation modal: overwrite warning; on confirm run callback, on cancel run cancelCallback.
-     *
-     * @param {Function} onConfirm Called when user clicks Apply (no args).
-     * @param {Function} onCancel Called when user clicks Cancel or closes (no args).
-     */
-    function showGradingConfirmModal(onConfirm, onCancel) {
-        var modalId = 'plagiarism_dixeo_grading_confirm_modal';
-        var existing = document.getElementById(modalId);
-        if (existing && existing.parentNode) {
-            existing.parentNode.removeChild(existing);
-        }
-        Promise.all([
-            Str.get_string('grading_apply_confirm_title', 'plagiarism_dixeo'),
-            Str.get_string('grading_apply_confirm_body', 'plagiarism_dixeo'),
-            Str.get_string('grading_apply_confirm', 'plagiarism_dixeo'),
-            Str.get_string('cancel', 'moodle')
-        ]).then(function(arr) {
-            var title = arr[0];
-            var body = arr[1];
-            var confirmLabel = arr[2];
-            var cancelLabel = arr[3];
-            var wrap = document.createElement('div');
-            wrap.id = modalId;
-            wrap.className = 'modal fade';
-            wrap.setAttribute('role', 'dialog');
-            wrap.innerHTML =
-                '<div class="modal-dialog" role="document">' +
-                '  <div class="modal-content">' +
-                '    <div class="modal-header"><h5 class="modal-title">' + title + '</h5></div>' +
-                '    <div class="modal-body">' + body + '</div>' +
-                '    <div class="modal-footer">' +
-                '      <button type="button" class="btn btn-secondary plagiarism-dixeo-grading-confirm-cancel">' +
-                cancelLabel + '</button>' +
-                '      <button type="button" class="btn btn-primary plagiarism-dixeo-grading-confirm-apply">' +
-                confirmLabel + '</button>' +
-                '    </div>' +
-                '  </div>' +
-                '</div>';
-            document.body.appendChild(wrap);
-            var $m = $(wrap);
-            /**
-             * Remove modal from DOM and unbind hidden.bs.modal.
-             */
-            function cleanup() {
-                $m.off('hidden.bs.modal');
-                if (wrap.parentNode) {
-                    wrap.parentNode.removeChild(wrap);
-                }
-            }
-            wrap.querySelector('.plagiarism-dixeo-grading-confirm-apply').addEventListener('click', function() {
-                $m.modal('hide');
-                cleanup();
-                onConfirm();
-            });
-            wrap.querySelector('.plagiarism-dixeo-grading-confirm-cancel').addEventListener('click', function() {
-                $m.modal('hide');
-            });
-            $m.on('hidden.bs.modal', function() {
-                cleanup();
-                onCancel();
-            });
-            $m.modal({ backdrop: true, keyboard: true });
-        }).catch(function(err) {
-            Notification.exception(err);
-            onCancel();
+            return null;
+        }).catch(function() {
+            // If strings fail, leave the grader without the Analyze button.
         });
     }
 
     /**
      * Attach click handler to the Analyze button (grader view).
-     * Shows confirmation modal first; on confirm calls API and applies grading.
      *
      * @param {HTMLButtonElement} analyzeButton
      * @param {string} cmid Course module ID from URL.
      * @param {string} uid User ID from URL.
      */
     function attachAnalyzeClickHandler(analyzeButton, cmid, uid) {
+
         analyzeButton.addEventListener('click', function() {
             analyzeButton.disabled = true;
-            showGradingConfirmModal(
-                function() {
-                    Str.get_string('analyzing', 'plagiarism_dixeo').then(function(analyzingMsg) {
-                        return showLoadingModal(analyzingMsg);
-                    }).then(function() {
-                        Ajax.call([{
-                            methodname: 'plagiarism_dixeo_mod_assign_grade_submission',
-                            args: {
-                                id: parseInt(cmid, 10) || 0,
-                                userid: parseInt(uid, 10) || 0
-                            },
-                            done: function(data) {
-                                applyResponse(data);
-                                analyzeButton.disabled = false;
-                                hideLoadingModal();
-                            },
-                            fail: function(err) {
-                                Notification.exception(err);
-                                analyzeButton.disabled = false;
-                                hideLoadingModal();
-                            }
-                        }]);
-                    }).catch(function(err) {
-                        Notification.exception(err);
-                        analyzeButton.disabled = false;
-                    });
-                },
-                function() {
-                    analyzeButton.disabled = false;
+            var cmidInt = parseInt(cmid, 10) || 0;
+
+            Str.get_string('analyzing', 'plagiarism_dixeo').then(function(analyzingMsg) {
+                return showLoadingModal(analyzingMsg);
+            }).then(function() {
+                return Ajax.call([{
+                    methodname: 'plagiarism_dixeo_mod_assign_grade_submission',
+                    args: {
+                        id: cmidInt,
+                        userid: parseInt(uid, 10) || 0
+                    }
+                }])[0];
+            }).then(function(data) {
+                if (!data || data.status === 'failed') {
+                    if (data && data.errormessage) {
+                        Notification.addNotification({message: data.errormessage, type: 'error'});
+                    }
+                    return null;
                 }
-            );
+                if (data.status === 'completed') {
+                    return data;
+                }
+                return AssignJobPoller.poll(data.jobid, data.courseid, cmidInt, 'grade');
+            }).then(function(data) {
+                if (!data) {
+                    return null;
+                }
+                if (data.status === 'failed') {
+                    if (data.errormessage) {
+                        Notification.addNotification({message: data.errormessage, type: 'error'});
+                    }
+                    return null;
+                }
+                return applyResponse(data);
+            }).catch(function(err) {
+                Notification.exception(err);
+            }).then(function() {
+                analyzeButton.disabled = false;
+                hideLoadingModal();
+                return null;
+            }).catch(function() {
+                // Ignore cleanup errors.
+            });
         });
     }
 

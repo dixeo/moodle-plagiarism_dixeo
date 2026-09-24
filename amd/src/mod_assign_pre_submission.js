@@ -1,15 +1,14 @@
 /**
- * Mod assign pre-submission: adds an "Analyze" step on assign view page (mod/assign/view.php?id=…&action=view).
- * Uses course module id from URL only; submission data is loaded server-side via get_submission_data (current user).
+ * Pre-submission Analyze step on the mod/assign submission page (view.php, default or action=view).
  *
  * @module     plagiarism_dixeo/mod_assign_pre_submission
- * @author     Josemaria Bolanos <admin@mako.digital>
- * @copyright  2025
+ * @copyright  2026 Dixeo (contact@dixeo.com)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define(['jquery', 'core/ajax', 'core/notification', 'core/str', 'core/templates', 'core/loadingicon'],
-function($, Ajax, Notification, Str, Templates, LoadingIcon) {
+define(['jquery', 'core/ajax', 'core/notification', 'core/str', 'core/templates', 'core/loadingicon',
+    'plagiarism_dixeo/assign_job_poller'],
+function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
 
     /**
      * Find the Submit assignment form: form with action mod/assign/view.php and hidden input action=submit.
@@ -40,6 +39,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     }
 
     var LOADING_MODAL_ID = 'plagiarism_dixeo_loading_modal';
+    var QUIZ_MODAL_ID = 'plagiarism_dixeo_authorship_quiz_modal';
     var RESPONSE_CONTAINER_ID = 'plagiarism_dixeo_submission_response';
 
     /** Whether the form has already passed authorship check (submit allowed without re-check). */
@@ -56,29 +56,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     }
 
     /**
-     * Insert the feedback/response HTML container into the page (after header, or form start, or region-main).
-     *
-     * @param {string} html HTML fragment for the feedback container.
-     */
-    function insertFeedbackContainer(html) {
-        var container = document.createElement('div');
-        container.id = RESPONSE_CONTAINER_ID;
-        container.innerHTML = html;
-        var header = document.getElementById('id_submissionheader');
-        var form = findAssignForm();
-        var regionMain = document.getElementById('region-main');
-        if (header) {
-            header.parentNode.insertBefore(container, header.nextSibling);
-        } else if (form) {
-            form.insertBefore(container, form.firstChild);
-        } else if (regionMain) {
-            regionMain.insertBefore(container, regionMain.firstChild);
-        } else {
-            document.body.appendChild(container);
-        }
-    }
-
-    /**
      * Hide the loading modal.
      */
     function hideLoadingModal() {
@@ -86,33 +63,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         if (el) {
             $(el).modal('hide');
         }
-    }
-
-    /**
-     * Hide the loading modal and return a Promise that resolves when it is fully hidden.
-     * Use this before opening another modal so focus and aria-hidden are cleared.
-     *
-     * @returns {Promise<void>}
-     */
-    function hideLoadingModalAndWait() {
-        var el = document.getElementById(LOADING_MODAL_ID);
-        if (!el) {
-            return Promise.resolve();
-        }
-        var $el = $(el);
-        return new Promise(function(resolve) {
-            var resolved = false;
-            /** One-time resolve guard so we resolve only once (from event or timeout). */
-            function finish() {
-                if (!resolved) {
-                    resolved = true;
-                    resolve();
-                }
-            }
-            $el.one('hidden.bs.modal', finish);
-            $el.modal('hide');
-            setTimeout(finish, 500);
-        });
     }
 
     /**
@@ -125,7 +75,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
     function showLoadingModal(message) {
         var existing = document.getElementById(LOADING_MODAL_ID);
         if (existing) {
-            var textEl = existing.querySelector('.plagiarism-dixeo-modal-text');
+            var textEl = existing.querySelector('.local-dixeo-ux-modal-text');
             if (textEl) {
                 textEl.textContent = message;
             }
@@ -137,7 +87,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
                 $existing.modal('show');
             });
         }
-        return Templates.render('plagiarism_dixeo/loading_modal', { message: message }).then(function(html, js) {
+        return Templates.render('plagiarism_dixeo/loading_modal', {message: message}).then(function(html, js) {
             var wrapper = document.createElement('div');
             wrapper.innerHTML = html.trim();
             var modal = wrapper.firstChild;
@@ -145,37 +95,25 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             if (js) {
                 Templates.runTemplateJS(js);
             }
-            LoadingIcon.addIconToContainer(modal.querySelector('.plagiarism-dixeo-modal-spinner'));
+            LoadingIcon.addIconToContainer(modal.querySelector('.local-dixeo-ux-modal-spinner'));
             var $modal = $(modal);
             return new Promise(function(resolve) {
                 $modal.one('shown.bs.modal', function() {
                     resolve($modal);
                 });
-                $modal.modal({ backdrop: 'static', keyboard: false });
+                $modal.modal({backdrop: 'static', keyboard: false});
             });
         });
     }
 
     /**
-     * Run the pre-submission behavior: check for existing feedback; if none, add Analyze button (id from URL),
-     * submit listener if form present, and verification modal trigger for badges.
+     * Run the pre-submission behavior: add Analyze button (id from URL), optional submit listener if form present.
      */
     function run() {
         var cmid = getUrlParam('id').trim();
         if (!cmid) {
             return;
         }
-
-        // Delegate: open verification modal when user clicks the badge (verification required / in progress).
-        $(document).off('click.plagiarism_dixeo_verification', '.plagiarism-dixeo-open-verification-modal');
-        $(document).on('click.plagiarism_dixeo_verification', '.plagiarism-dixeo-open-verification-modal', function(e) {
-            e.preventDefault();
-            var recordId = parseInt($(this).data('record-id'), 10) || 0;
-            var cmid = parseInt($(this).data('cmid'), 10) || 0;
-            if (recordId > 0) {
-                openVerificationModal(recordId, null, cmid);
-            }
-        });
 
         var form = findAssignForm();
         if (!form) {
@@ -195,32 +133,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             }
         }
 
-        var cmidInt = parseInt(cmid, 10) || 0;
-        Ajax.call([{
-            methodname: 'plagiarism_dixeo_get_presubmission_status',
-            args: { id: cmidInt },
-            done: function(data) {
-                if (data && data.has_feedback && data.feedback_html) {
-                    insertFeedbackContainer(data.feedback_html);
-                    return;
-                }
-                addAnalyzeButtonAndSubmitHandler(buttonContainer, submitButton, form, cmidInt);
-            },
-            fail: function() {
-                addAnalyzeButtonAndSubmitHandler(buttonContainer, submitButton, form, cmidInt);
-            }
-        }]);
-    }
-
-    /**
-     * Add the Analyze button and attach submit handler (when no existing feedback).
-     *
-     * @param {HTMLElement} buttonContainer
-     * @param {HTMLElement|null} submitButton
-     * @param {HTMLFormElement} form
-     * @param {number} cmid
-     */
-    function addAnalyzeButtonAndSubmitHandler(buttonContainer, submitButton, form, cmid) {
         Str.get_string('analyze', 'plagiarism_dixeo').then(function(analyzeLabel) {
             var analyzeButton = document.createElement('button');
             analyzeButton.type = 'button';
@@ -242,12 +154,55 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             } else {
                 buttonContainer.appendChild(analyzeButton);
             }
-            attachAnalyzeHandler(analyzeButton, cmid);
+            attachAnalyzeHandler(analyzeButton, parseInt(cmid, 10));
             if (form) {
                 attachSubmitHandler(form, cmid);
             }
+            return null;
         }).catch(function() {
             // If strings fail, still allow normal submit.
+        });
+    }
+
+    /**
+     * Place the analysis response container in the page.
+     *
+     * @param {HTMLElement} container
+     */
+    function insertResponseContainer(container) {
+        var header = document.getElementById('id_submissionheader');
+        var form = findAssignForm();
+        var regionMain = document.getElementById('region-main');
+        if (header) {
+            header.parentNode.insertBefore(container, header.nextSibling);
+        } else if (form) {
+            form.insertBefore(container, form.firstChild);
+        } else if (regionMain) {
+            regionMain.insertBefore(container, regionMain.firstChild);
+        } else {
+            document.body.appendChild(container);
+        }
+    }
+
+    /**
+     * Render analysis HTML into the response container.
+     *
+     * @param {string} htmlFragment Server-sanitized HTML.
+     * @returns {Promise}
+     */
+    function renderAnalysisHtml(htmlFragment) {
+        var container = document.createElement('div');
+        container.id = RESPONSE_CONTAINER_ID;
+        return Templates.render('plagiarism_dixeo/html_fragment', {
+            html: htmlFragment || '',
+            classes: ''
+        }).then(function(html, js) {
+            container.innerHTML = html;
+            insertResponseContainer(container);
+            if (js) {
+                Templates.runTemplateJS(js);
+            }
+            return null;
         });
     }
 
@@ -265,23 +220,40 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             Str.get_string('analyzing', 'plagiarism_dixeo').then(function(analyzingMsg) {
                 return showLoadingModal(analyzingMsg);
             }).then(function() {
-                Ajax.call([{
+                return Ajax.call([{
                     methodname: 'plagiarism_dixeo_mod_assign_pre_submission',
-                    args: { id: cmid },
-                    done: function(html) {
-                        insertFeedbackContainer(html);
-                        analyzeButton.disabled = false;
-                        hideLoadingModal();
-                    },
-                    fail: function(err) {
-                        Notification.exception(err);
-                        analyzeButton.disabled = false;
-                        hideLoadingModal();
+                    args: {id: cmid}
+                }])[0];
+            }).then(function(data) {
+                if (!data || data.status === 'failed') {
+                    if (data && data.errormessage) {
+                        Notification.addNotification({message: data.errormessage, type: 'error'});
                     }
-                }]);
+                    return null;
+                }
+                if (data.status === 'completed' && data.html) {
+                    return data;
+                }
+                return AssignJobPoller.poll(data.jobid, data.courseid, cmid, 'review');
+            }).then(function(data) {
+                if (!data) {
+                    return null;
+                }
+                if (data.status === 'failed') {
+                    if (data.errormessage) {
+                        Notification.addNotification({message: data.errormessage, type: 'error'});
+                    }
+                    return null;
+                }
+                return renderAnalysisHtml(data.html || '');
             }).catch(function(err) {
                 Notification.exception(err);
+            }).then(function() {
                 analyzeButton.disabled = false;
+                hideLoadingModal();
+                return null;
+            }).catch(function() {
+                // Ignore cleanup errors.
             });
         });
     }
@@ -304,30 +276,31 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
             Str.get_string('authorship_verifying', 'plagiarism_dixeo').then(function(verifyingMsg) {
                 return showLoadingModal(verifyingMsg);
             }).then(function() {
-                Ajax.call([{
+                return Ajax.call([{
                     methodname: 'plagiarism_dixeo_check_authorship',
                     args: {
                         component: 'mod_assign',
                         area: 'submission',
                         id: parseInt(formId, 10) || 0
-                    },
-                    done: function(data) {
-                        var recordId = (data && data.record_id) ? parseInt(data.record_id, 10) : 0;
-                        if (recordId === 0) {
-                            hideLoadingModal();
-                            submissionAuthorized = true;
-                            form.submit();
-                            return;
-                        }
-                        hideLoadingModalAndWait().then(function() {
-                            openVerificationModal(recordId, form, parseInt(formId, 10) || 0);
-                        });
-                    },
-                    fail: function(err) {
-                        hideLoadingModal();
-                        Notification.exception(err);
                     }
-                }]);
+                }])[0];
+            }).then(function(data) {
+                hideLoadingModal();
+                if (data && data.status === 'failed' && data.errormessage) {
+                    Notification.addNotification({
+                        message: data.errormessage,
+                        type: 'error'
+                    });
+                    return null;
+                }
+                var recordId = (data && data.record_id) ? parseInt(data.record_id, 10) : 0;
+                if (recordId === 0) {
+                    submissionAuthorized = true;
+                    form.submit();
+                    return null;
+                }
+                showQuizModal(form, (data.quiz_html || ''));
+                return null;
             }).catch(function(err) {
                 hideLoadingModal();
                 Notification.exception(err);
@@ -335,849 +308,269 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon) {
         });
     }
 
-    var VERIFICATION_MODAL_ID = 'plagiarism_dixeo_verification_modal';
-    var QUESTION_TYPE_TRUE_FALSE = 'true_false';
-    var QUESTION_TYPE_MULTIPLE_CHOICE = 'multiple_choice';
-
-    /* eslint-disable jsdoc/require-jsdoc, jsdoc/require-param, max-len */
     /**
-     * Open the verification quiz modal: load via get_verification_quiz, show instructions or questions.
+     * Check if all quiz inputs in the container have a value (for enabling Submit).
      *
-     * @param {number} recordId Authorship record id.
-     * @param {HTMLFormElement|null} formOptional Assign form if opened from submit (for submissionAuthorized after close).
-     * @param {number} cmid Course module id (for refreshing panel after submit).
+     * @param {HTMLElement} container
+     * @returns {boolean}
      */
-    function openVerificationModal(recordId, formOptional, cmid) {
-        Str.get_string('authorship_verifying', 'plagiarism_dixeo').then(function(loadingMsg) {
-            return showLoadingModal(loadingMsg);
-        }).then(function() {
-            return Ajax.call([{
-                methodname: 'plagiarism_dixeo_get_verification_quiz',
-                args: { record_id: recordId },
-                done: function(data) {
-                    hideLoadingModal();
-                    var submitted = data.submitted === true;
-                    var questions = [];
-                    try {
-                        questions = typeof data.questions === 'string' ? JSON.parse(data.questions) : (data.questions || []);
-                    } catch (e) {
-                        questions = [];
-                    }
-                    var settings = {};
-                    try {
-                        settings = typeof data.settings === 'string' ? JSON.parse(data.settings) : (data.settings || {});
-                    } catch (e) {
-                        settings = {};
-                    }
-                    var instructions = { intro: '', lines: [] };
-                    try {
-                        instructions = typeof data.instructions === 'string'
-                            ? JSON.parse(data.instructions) : (data.instructions || instructions);
-                    } catch (e) {}
-                    var state = null;
-                    if (data.state) {
-                        try {
-                            state = typeof data.state === 'string' ? JSON.parse(data.state) : data.state;
-                        } catch (e) {}
-                    }
-                    if (submitted) {
-                        showVerificationSubmittedModal();
-                        return;
-                    }
-                    if (questions.length === 0) {
-                        Str.get_string('error_no_quiz_available', 'plagiarism_dixeo').then(function(msg) {
-                            Notification.addNotification({ message: msg, type: 'error' });
-                        });
-                        return;
-                    }
-                    showVerificationQuizModal(
-                        recordId, questions, settings, instructions, state, formOptional, cmid || 0
-                    );
-                },
-                fail: function(err) {
-                    hideLoadingModal();
-                    Notification.exception(err);
+    function allQuizQuestionsAnswered(container) {
+        var sel = 'input[name^="authorship_q["], select[name^="authorship_q["], ' +
+            'textarea[name^="authorship_q["]';
+        var inputs = container.querySelectorAll(sel);
+        var i;
+        for (i = 0; i < inputs.length; i++) {
+            var el = inputs[i];
+            if (el.type === 'radio' || el.type === 'checkbox') {
+                var name = el.name;
+                var checked = container.querySelector('input[name="' + name.replace(/[[\]]/g, '\\$&') + '"]:checked');
+                if (!checked) {
+                    return false;
                 }
-            }]);
-        }).catch(function(err) {
-            hideLoadingModal();
-            Notification.exception(err);
-        });
+            } else if (!el.value || !el.value.trim()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
-     * Show a simple modal with "Test submitted" and Close. On close, reload.
+     * Collect record_id and responses from the quiz form fragment.
+     *
+     * @param {HTMLElement} container
+     * @returns {{recordId: number, responses: Object}}
      */
-    function showVerificationSubmittedModal() {
-        var modal = document.getElementById(VERIFICATION_MODAL_ID);
-        if (modal && modal.parentNode) {
-            modal.parentNode.removeChild(modal);
-        }
-        Promise.all([
-            Str.get_string('verification_test_submitted', 'plagiarism_dixeo'),
-            Str.get_string('verification_test_submitted_message', 'plagiarism_dixeo'),
-            Str.get_string('verification_close', 'plagiarism_dixeo')
-        ]).then(function(arr) {
-            var strings = { title: arr[0], body: arr[1], close: arr[2] };
-            var wrap = document.createElement('div');
-            wrap.id = VERIFICATION_MODAL_ID;
-            wrap.className = 'modal fade';
-            wrap.setAttribute('role', 'dialog');
-            wrap.innerHTML =
-                '<div class="modal-dialog" role="document">' +
-                '  <div class="modal-content">' +
-                '    <div class="modal-header"><h5 class="modal-title">' + strings.title + '</h5></div>' +
-                '    <div class="modal-body">' + strings.body + '</div>' +
-                '    <div class="modal-footer">' +
-                '      <button type="button" class="btn btn-primary plagiarism-dixeo-verification-close">' +
-                strings.close + '</button>' +
-                '    </div>' +
-                '  </div>' +
-                '</div>';
-            document.body.appendChild(wrap);
-            var $m = $(wrap);
-            wrap.querySelector('.plagiarism-dixeo-verification-close').addEventListener('click', function() {
-                $m.modal('hide');
-            });
-            $m.on('hidden.bs.modal', function() {
-                if (wrap.parentNode) {
-                    wrap.parentNode.removeChild(wrap);
+    function collectQuizResponses(container) {
+        var recordInput = container.querySelector('input[name="authorship_record_id"]');
+        var recordId = (recordInput && recordInput.value) ? parseInt(recordInput.value, 10) : 0;
+        var responses = {};
+        var sel = 'input[name^="authorship_q["], select[name^="authorship_q["], ' +
+            'textarea[name^="authorship_q["]';
+        var inputs = container.querySelectorAll(sel);
+        var i, name, match;
+        for (i = 0; i < inputs.length; i++) {
+            var el = inputs[i];
+            name = el.name;
+            if (el.type === 'radio' || el.type === 'checkbox') {
+                if (el.checked) {
+                    match = name.match(/authorship_q\[([^\]]+)\]/);
+                    if (match) {
+                        responses[match[1]] = el.value;
+                    }
                 }
-                location.reload();
-            });
-            $m.modal({ backdrop: 'static', keyboard: false });
+            } else {
+                match = name.match(/authorship_q\[([^\]]+)\]/);
+                if (match) {
+                    responses[match[1]] = el.value;
+                }
+            }
+        }
+        return {recordId: recordId, responses: responses};
+    }
+
+    /**
+     * Notify when the authorship record id is missing from the quiz.
+     *
+     * @returns {Promise}
+     */
+    function notifyMissingRecord() {
+        return Str.get_string('authorship_error_missing_record', 'plagiarism_dixeo').then(function(msg) {
+            Notification.addNotification({message: msg, type: 'error'});
+            return null;
         }).catch(function() {
-            Notification.addNotification({ message: 'Error loading strings.', type: 'error' });
+            // Ignore string load failure.
         });
     }
 
     /**
-     * Show the verification quiz modal: instructions (with Start/Cancel) or question screens.
-     * @param {number} recordId Authorship record id.
-     * @param {Array} questions Quiz questions (no correct answers).
-     * @param {Object} settings Timer/navigation settings.
-     * @param {Object} instructions Intro and lines.
-     * @param {Object|null} state Restored state if in progress.
-     * @param {HTMLFormElement|null} formOptional Assign form if opened from submit.
-     * @param {number} cmid Course module id (for refreshing panel after submit).
+     * Verify authorship answers then submit the assign form.
+     *
+     * @param {HTMLFormElement} form
+     * @param {jQuery} $modal
+     * @param {HTMLButtonElement} submitBtn
+     * @param {{recordId: number, responses: Object}} collected
      */
-    function showVerificationQuizModal(recordId, questions, settings, instructions, state, formOptional, cmid) {
-        var modal = document.getElementById(VERIFICATION_MODAL_ID);
-        if (modal && modal.parentNode) {
-            modal.parentNode.removeChild(modal);
-        }
-        Promise.all([
-            Str.get_string('authorship_cancel', 'plagiarism_dixeo'),
-            Str.get_string('verification_instructions_start', 'plagiarism_dixeo'),
-            Str.get_string('verification_previous', 'plagiarism_dixeo'),
-            Str.get_string('verification_next', 'plagiarism_dixeo'),
-            Str.get_string('verification_submit', 'plagiarism_dixeo'),
-            Str.get_string('verification_instructions_unlimited', 'plagiarism_dixeo'),
-            Str.get_string('true', 'plagiarism_dixeo'),
-            Str.get_string('false', 'plagiarism_dixeo'),
-            Str.get_string('timer_test_tooltip', 'plagiarism_dixeo'),
-            Str.get_string('timer_question_tooltip', 'plagiarism_dixeo'),
-            Str.get_string('question_locked', 'plagiarism_dixeo'),
-            Str.get_string('question_locked_tooltip', 'plagiarism_dixeo')
-        ]).then(function(arr) {
-            var uiStrings = {
-                cancel: arr[0], start: arr[1], previous: arr[2], next: arr[3],
-                submit: arr[4], unlimited: arr[5], trueLabel: arr[6], falseLabel: arr[7],
-                timerTestTooltip: arr[8], timerQuestionTooltip: arr[9],
-                questionLocked: arr[10], questionLockedTooltip: arr[11]
-            };
-        var totalTimeSec = parseInt(settings.total_time_sec, 10) || 0;
-        var allowBackwards = settings.allow_backwards === true || settings.allow_backwards === '1';
-        var nextDelaySec = parseInt(settings.next_button_delay_sec, 10) || 3;
-        var timeTf = parseInt(settings.time_true_false_sec, 10) || 60;
-        var timeMc = parseInt(settings.time_multiple_choice_sec, 10) || 60;
-        var timeOpen = parseInt(settings.time_open_sec, 10) || 180;
-
-        var ctx = {
-            strings: uiStrings,
-            recordId: recordId,
-            cmid: parseInt(cmid, 10) || 0,
-            formOptional: formOptional || null,
-            questions: questions,
-            settings: settings,
-            totalTimeSec: totalTimeSec,
-            allowBackwards: allowBackwards,
-            nextDelaySec: nextDelaySec,
-            timeTf: timeTf,
-            timeMc: timeMc,
-            timeOpen: timeOpen,
-            responses: {},
-            timings: { test_started_at: 0, current_index: 0, questions: {} },
-            currentIndex: 0,
-            visited: {},
-            nextUnlockAt: 0,
-            timerInterval: null,
-            _lastSaveTimingsAt: 0
-        };
-        if (state && state.test_started_at) {
-            ctx.timings = state.response_timings || ctx.timings;
-            if (!ctx.timings.questions || typeof ctx.timings.questions !== 'object') {
-                ctx.timings.questions = {};
-            }
-            ctx.responses = state.quiz_responses || {};
-            ctx.currentIndex = parseInt(state.current_question_index, 10) || 0;
-            if (ctx.currentIndex < 0 || ctx.currentIndex >= questions.length) {
-                ctx.currentIndex = 0;
-            }
-            ctx.timings.test_started_at = parseInt(ctx.timings.test_started_at || state.test_started_at, 10) || 0;
-            ctx.timings.current_index = ctx.currentIndex;
-            var qKeys = Object.keys(ctx.timings.questions || {});
-            for (var qi = 0; qi < qKeys.length; qi++) {
-                var qk = qKeys[qi];
-                var qt = ctx.timings.questions[qk];
-                if (qt && typeof qt === 'object') {
-                    if (qt.started_at !== undefined && qt.started_at !== null) {
-                        qt.started_at = parseInt(qt.started_at, 10);
-                    }
-                    if (qt.remaining !== undefined && qt.remaining !== null) {
-                        qt.remaining = parseInt(qt.remaining, 10);
-                    }
-                }
-            }
-            if (!ctx.allowBackwards) {
-                var curQkey = 'q' + ctx.currentIndex;
-                var curStarted = ctx.timings.questions[curQkey] && ctx.timings.questions[curQkey].started_at;
-                ctx.nextUnlockAt = (curStarted || state.test_started_at) + ctx.nextDelaySec;
-            }
-            for (var i = 0; i <= ctx.currentIndex && i < questions.length; i++) {
-                ctx.visited[i] = true;
-            }
-            var qkey = 'q' + ctx.currentIndex;
-            if (!ctx.timings.questions[qkey]) {
-                ctx.timings.questions[qkey] = {};
-            }
-            if (!ctx.timings.questions[qkey].started_at && ctx.currentIndex === 0 && ctx.timings.test_started_at) {
-                ctx.timings.questions[qkey].started_at = ctx.timings.test_started_at;
-            }
-        }
-
-        var modalEl = document.createElement('div');
-        modalEl.id = VERIFICATION_MODAL_ID;
-        modalEl.className = 'modal fade';
-        modalEl.setAttribute('role', 'dialog');
-        modalEl.innerHTML =
-            '<div class="modal-dialog modal-lg" role="document">' +
-            '  <div class="modal-content">' +
-            '    <div class="modal-header plagiarism-dixeo-verification-header">' +
-            '      <h5 class="modal-title plagiarism-dixeo-verification-title"></h5>' +
-            '      <span class="plagiarism-dixeo-verification-counter-wrap">' +
-            '        <span class="plagiarism-dixeo-verification-counter" aria-hidden="true"></span>' +
-            '        <span class="plagiarism-dixeo-verification-donut" aria-hidden="true"></span>' +
-            '      </span>' +
-            '    </div>' +
-            '    <div class="modal-body plagiarism-dixeo-verification-body"></div>' +
-            '    <div class="modal-footer plagiarism-dixeo-verification-footer"></div>' +
-            '  </div>' +
-            '</div>';
-        document.body.appendChild(modalEl);
-
-        var titleEl = modalEl.querySelector('.plagiarism-dixeo-verification-title');
-        var counterWrapEl = modalEl.querySelector('.plagiarism-dixeo-verification-counter-wrap');
-        var counterEl = modalEl.querySelector('.plagiarism-dixeo-verification-counter');
-        var donutEl = modalEl.querySelector('.plagiarism-dixeo-verification-donut');
-        var bodyEl = modalEl.querySelector('.plagiarism-dixeo-verification-body');
-        var footerEl = modalEl.querySelector('.plagiarism-dixeo-verification-footer');
-
-        function showScreen(screen) {
-            if (screen === 'instructions') {
-                var heading = instructions.heading || '';
-                var intro = instructions.intro || '';
-                var lines = instructions.lines || [];
-                var html = '<div class="plagiarism-dixeo-instructions">';
-                if (heading) {
-                    html += '<h6 class="plagiarism-dixeo-instructions__heading">' +
-                        (heading.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</h6>';
-                }
-                if (intro) {
-                    html += '<p class="plagiarism-dixeo-instructions__intro">' +
-                        (intro.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</p>';
-                }
-                if (lines.length > 0) {
-                    html += '<ul class="plagiarism-dixeo-instructions__rules">';
-                    lines.forEach(function(line) {
-                        html += '<li>' + (line.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</li>';
-                    });
-                    html += '</ul>';
-                }
-                html += '</div>';
-                bodyEl.innerHTML = html;
-                if (counterWrapEl) {
-                    counterWrapEl.style.display = 'none';
-                }
-                footerEl.innerHTML =
-                    '<button type="button" class="btn btn-secondary plagiarism-dixeo-verification-cancel">' +
-                    ctx.strings.cancel + '</button>' +
-                    '<button type="button" class="btn btn-primary plagiarism-dixeo-verification-start">' +
-                    ctx.strings.start + '</button>';
-                footerEl.querySelector('.plagiarism-dixeo-verification-cancel').addEventListener('click', function() {
-                    $(modalEl).modal('hide');
-                });
-                footerEl.querySelector('.plagiarism-dixeo-verification-start').addEventListener('click', function() {
-                    startVerificationAndShowFirstQuestion();
-                });
-                return;
-            }
-            if (screen === 'question') {
-                renderQuestionScreen(ctx, titleEl, counterEl, donutEl, counterWrapEl, bodyEl, footerEl, modalEl);
-                return;
-            }
-        }
-
-        function startVerificationAndShowFirstQuestion() {
-            Ajax.call([{
-                methodname: 'plagiarism_dixeo_start_verification',
-                args: { record_id: recordId },
-                done: function(data) {
-                    if (data.success && data.test_started_at) {
-                        ctx.timings.test_started_at = data.test_started_at;
-                        ctx.currentIndex = 0;
-                        ctx.visited[0] = true;
-                        ctx.timings.current_index = 0;
-                        ctx.timings.questions['q' + ctx.currentIndex] = { started_at: data.test_started_at, ended_at: null, seconds: 0 };
-                        if (!ctx.allowBackwards) {
-                            ctx.nextUnlockAt = data.test_started_at + ctx.nextDelaySec;
-                        }
-                        showScreen('question');
-                        startTimers(ctx, bodyEl, footerEl, modalEl);
-                    }
-                },
-                fail: function(err) {
-                    Notification.exception(err);
-                }
-            }]);
-        }
-
-        if (state && state.test_started_at) {
-            Str.get_string('authorship_quiz_modal_title', 'plagiarism_dixeo').then(function(t) {
-                titleEl.textContent = t;
-                showScreen('question');
-                $(modalEl).one('shown.bs.modal', function() {
-                    startTimers(ctx, bodyEl, footerEl, modalEl);
-                });
-            });
-        } else {
-            Str.get_string('authorship_quiz_modal_title', 'plagiarism_dixeo').then(function(t) {
-                titleEl.textContent = t;
-                showScreen('instructions');
-            });
-        }
-
-        $(modalEl).on('hidden.bs.modal', function() {
-            if (ctx.timerInterval) {
-                clearInterval(ctx.timerInterval);
-            }
-            if (modalEl.parentNode) {
-                modalEl.parentNode.removeChild(modalEl);
-            }
-        });
-        $(modalEl).modal({ backdrop: 'static', keyboard: false });
-        }).catch(function(err) {
-            Notification.exception(err);
-        });
-    }
-
-    /** Format seconds as MM:SS. */
-    function formatMinutesSeconds(sec) {
-        if (sec === null || sec === undefined || sec < 0) {
-            return '0:00';
-        }
-        var m = Math.floor(sec / 60);
-        var s = Math.floor(sec % 60);
-        return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
-    }
-
-    /** Submit verification (used by Submit button and auto-submit when total time expires). */
-    function doVerificationSubmit(ctx, bodyEl, modalEl) {
-        if (ctx._submitInProgress) {
-            return;
-        }
-        ctx._submitInProgress = true;
-        captureResponseFromBody(bodyEl, ctx);
-        ctx.timings.test_ended_at = Math.floor(Date.now() / 1000);
-        if (ctx.timerInterval) {
-            clearInterval(ctx.timerInterval);
-            ctx.timerInterval = null;
-        }
-        $(modalEl).modal('hide');
-        Str.get_string('verification_submitting', 'plagiarism_dixeo').then(function(msg) {
-            return showLoadingModal(msg);
-        }).then(function() {
-            Ajax.call([{
-                methodname: 'plagiarism_dixeo_verify_authorship',
-                args: {
-                    record_id: ctx.recordId,
-                    responses: JSON.stringify(ctx.responses),
-                    response_timings: JSON.stringify(ctx.timings)
-                },
-                done: function() {
-                    hideLoadingModal();
-                    if (ctx.formOptional) {
-                        submissionAuthorized = true;
-                    }
-                    setTimeout(function() {
-                        location.reload();
-                    }, 200);
-                },
-                fail: function(err) {
-                    hideLoadingModal();
-                    Notification.exception(err);
-                    ctx._submitInProgress = false;
-                    setTimeout(function() {
-                        location.reload();
-                    }, 200);
-                }
-            }]);
-        }).catch(function(err) {
-            hideLoadingModal();
-            Notification.exception(err);
-            ctx._submitInProgress = false;
-        });
-    }
-
-    /** Update total and per-question timer displays, Next unlock, and auto-submit when total time expires. */
-    function startTimers(ctx, bodyEl, footerEl, modalEl) {
-        if (ctx._lockToNextTimeout) {
-            clearTimeout(ctx._lockToNextTimeout);
-            ctx._lockToNextTimeout = null;
-        }
-        if (ctx.timerInterval) {
-            clearInterval(ctx.timerInterval);
-        }
-        function tick() {
-            updateTimerDisplays(ctx, bodyEl, footerEl, modalEl);
-        }
-        tick();
-        ctx.timerInterval = setInterval(tick, 1000);
-    }
-
-    /** Disable all inputs and show locked overlay (lock icon + "Question locked") when timer is zero. Only runs when bodyEl is inside the verification modal. */
-    function lockCurrentQuestionInputs(bodyEl, modalEl, ctx) {
-        if (!bodyEl || (modalEl && !modalEl.contains(bodyEl))) {
-            return;
-        }
-        var container = bodyEl.querySelector('.plagiarism-dixeo-question-content');
-        if (!container) {
-            return;
-        }
-        if (container.querySelector('.plagiarism-dixeo-question-locked-overlay')) {
-            return;
-        }
-        container.querySelectorAll('input, select, textarea').forEach(function(el) {
-            el.disabled = true;
-        });
-        var lockedText = (ctx && ctx.strings && ctx.strings.questionLocked) ? ctx.strings.questionLocked : 'Question locked';
-        var lockedTooltip = (ctx && ctx.strings && ctx.strings.questionLockedTooltip) ? ctx.strings.questionLockedTooltip : 'This question cannot be edited';
-        var overlay = document.createElement('div');
-        overlay.className = 'plagiarism-dixeo-question-locked-overlay';
-        overlay.setAttribute('title', lockedTooltip);
-        overlay.setAttribute('aria-label', lockedTooltip);
-        overlay.innerHTML = '<span class="plagiarism-dixeo-question-locked-icon" aria-hidden="true">' +
-            '<i class="fa fa-lock"></i></span><span class="plagiarism-dixeo-question-locked-text">' +
-            (lockedText.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</span>';
-        container.appendChild(overlay);
-    }
-
-    /** Delay in ms between locking a question and auto-advancing to the next. */
-    var LOCK_TO_NEXT_DELAY_MS = 2000;
-
-    /** Advance to next question after lock (capture response, update timings, save, render, start timers). */
-    function advanceToNextQuestionAfterLock(ctx, bodyEl, modalEl, titleEl, counterWrapEl, counterEl, donutEl, footerEl) {
-        captureResponseFromBody(bodyEl, ctx);
-        var now = Math.floor(Date.now() / 1000);
-        var qkey = 'q' + ctx.currentIndex;
-        if (ctx.timings.questions[qkey]) {
-            ctx.timings.questions[qkey].ended_at = now;
-            var sq = ctx.timings.questions[qkey];
-            ctx.timings.questions[qkey].seconds = (sq.ended_at || now) - (sq.started_at || now);
-        }
-        ctx.nextUnlockAt = now + ctx.nextDelaySec;
-        ctx.currentIndex++;
-        ctx.visited[ctx.currentIndex] = true;
-        ctx.timings.current_index = ctx.currentIndex;
-        var nextQkey = 'q' + ctx.currentIndex;
-        if (!ctx.timings.questions[nextQkey]) {
-            ctx.timings.questions[nextQkey] = {};
-        }
-        ctx.timings.questions[nextQkey].started_at = now;
-        saveVerificationProgress(ctx, function() {
-            renderQuestionScreen(ctx, titleEl, counterEl, donutEl, counterWrapEl, bodyEl, footerEl, modalEl);
-            var nBtn = footerEl.querySelector('.plagiarism-dixeo-verification-next');
-            if (nBtn) {
-                nBtn.disabled = true;
-                var unlockAt = ctx.nextUnlockAt;
-                var check = setInterval(function() {
-                    if (Math.floor(Date.now() / 1000) >= unlockAt) {
-                        nBtn.disabled = false;
-                        clearInterval(check);
-                    }
-                }, 500);
-            }
-            startTimers(ctx, bodyEl, footerEl, modalEl);
-        });
-    }
-
-    /** Write remaining time into footer timer elements (00:00), hide if unlimited, auto-submit when total expires, auto-advance when question time expires. */
-    function updateTimerDisplays(ctx, bodyEl, footerEl, modalEl) {
-        var totalRem = getRemainingTotal(ctx);
-        var qRem = getRemainingQuestion(ctx);
-        if (totalRem === 0) {
-            if (ctx._lockToNextTimeout) {
-                clearTimeout(ctx._lockToNextTimeout);
-                ctx._lockToNextTimeout = null;
-            }
-            if (ctx.timerInterval) {
-                clearInterval(ctx.timerInterval);
-                ctx.timerInterval = null;
-            }
-            doVerificationSubmit(ctx, bodyEl, modalEl);
-            return;
-        }
-        if (qRem === 0 && !ctx.allowBackwards && ctx.currentIndex < ctx.questions.length - 1 && ctx._questionTimerJustExpired !== ctx.currentIndex) {
-            ctx._questionTimerJustExpired = ctx.currentIndex;
-            lockCurrentQuestionInputs(bodyEl, modalEl, ctx);
-            var titleEl = modalEl.querySelector('.plagiarism-dixeo-verification-title');
-            var counterWrapEl = modalEl.querySelector('.plagiarism-dixeo-verification-counter-wrap');
-            var counterEl = modalEl.querySelector('.plagiarism-dixeo-verification-counter');
-            var donutEl = modalEl.querySelector('.plagiarism-dixeo-verification-donut');
-            ctx._lockToNextTimeout = setTimeout(function() {
-                ctx._lockToNextTimeout = null;
-                advanceToNextQuestionAfterLock(ctx, bodyEl, modalEl, titleEl, counterWrapEl, counterEl, donutEl, footerEl);
-            }, LOCK_TO_NEXT_DELAY_MS);
-            return;
-        }
-        if (qRem === 0) {
-            lockCurrentQuestionInputs(bodyEl, modalEl, ctx);
-        }
-        if (ctx.allowBackwards) {
-            var nowSave = Math.floor(Date.now() / 1000);
-            if (nowSave - (ctx._lastSaveTimingsAt || 0) >= 5) {
-                ctx._lastSaveTimingsAt = nowSave;
-                saveVerificationProgress(ctx, function() {});
-            }
-        }
-        var qRem = getRemainingQuestion(ctx);
-        var totalWrap = footerEl.querySelector('.plagiarism-dixeo-footer-total-timer');
-        var qWrap = footerEl.querySelector('.plagiarism-dixeo-footer-question-timer');
-        var totalEl = totalWrap ? totalWrap.querySelector('.plagiarism-dixeo-timer-value') : null;
-        var qEl = qWrap ? qWrap.querySelector('.plagiarism-dixeo-timer-value') : null;
-        if (totalWrap) {
-            totalWrap.style.display = totalRem === null ? 'none' : 'inline-flex';
-            if (totalEl) {
-                totalEl.textContent = totalRem !== null ? formatMinutesSeconds(totalRem) : '';
-            }
-        }
-        if (qWrap) {
-            qWrap.style.display = qRem === null ? 'none' : 'inline-flex';
-            if (qEl) {
-                qEl.textContent = qRem !== null ? formatMinutesSeconds(qRem) : '';
-            }
-        }
-        var now = Math.floor(Date.now() / 1000);
-        if (ctx.nextUnlockAt > 0 && now >= ctx.nextUnlockAt) {
-            ctx.nextUnlockAt = 0;
-            var nextBtn = footerEl.querySelector('.plagiarism-dixeo-verification-next');
-            if (nextBtn) {
-                nextBtn.disabled = false;
-            }
-        }
-    }
-
-    /** Seconds remaining for total quiz or null if unlimited. Uses current time so it keeps counting after reload. */
-    function getRemainingTotal(ctx) {
-        var started = ctx.timings.test_started_at;
-        if (!ctx.totalTimeSec || started === undefined || started === null || started <= 0) {
-            return null;
-        }
-        var nowSec = Math.floor(Date.now() / 1000);
-        var elapsed = nowSec - (Number(started));
-        var rem = ctx.totalTimeSec - elapsed;
-        return rem <= 0 ? 0 : rem;
-    }
-
-    /** Time limit in seconds for a question by index, or null if unlimited. */
-    function getQuestionLimit(ctx, index) {
-        var q = ctx.questions[index];
-        if (!q) {
-            return null;
-        }
-        var limit = ctx.timeOpen;
-        if (q.type === QUESTION_TYPE_TRUE_FALSE) {
-            limit = ctx.timeTf;
-        } else if (q.type === QUESTION_TYPE_MULTIPLE_CHOICE) {
-            limit = ctx.timeMc;
-        }
-        return limit || null;
-    }
-
-    /** Seconds remaining for current question or null if unlimited. Always derived from started_at so reload has no effect. */
-    function getRemainingQuestion(ctx) {
-        var q = ctx.questions[ctx.currentIndex];
-        if (!q) {
-            return null;
-        }
-        var qkey = 'q' + ctx.currentIndex;
-        var limit = getQuestionLimit(ctx, ctx.currentIndex);
-        if (!limit) {
-            return null;
-        }
-        var qTiming = ctx.timings.questions[qkey];
-        if (!qTiming) {
-            ctx.timings.questions[qkey] = {};
-            qTiming = ctx.timings.questions[qkey];
-        }
-        var qStarted = qTiming.started_at;
-        if (qStarted === undefined || qStarted === null) {
-            return null;
-        }
-        var nowSec = Math.floor(Date.now() / 1000);
-        var elapsed = nowSec - (Number(qStarted));
-        var rem = limit - elapsed;
-        return rem <= 0 ? 0 : rem;
-    }
-
-    /** Ensure current question has started_at for timer. On restore never overwrite from state: only set when missing so reload has no effect on remaining time. */
-    function ensureCurrentQuestionStartedAt(ctx) {
-        var qkey = 'q' + ctx.currentIndex;
-        if (ctx.timings.questions[qkey] && ctx.timings.questions[qkey].started_at) {
-            return;
-        }
-        if (!ctx.timings.questions[qkey]) {
-            ctx.timings.questions[qkey] = {};
-        }
-        if (ctx.currentIndex === 0 && ctx.timings.test_started_at) {
-            ctx.timings.questions[qkey].started_at = ctx.timings.test_started_at;
-        } else {
-            ctx.timings.questions[qkey].started_at = Math.floor(Date.now() / 1000);
-        }
-    }
-
-    /** Icons: Font Awesome clock (total), list (question time). */
-    var ICON_CLOCK = '<span class="plagiarism-dixeo-icon" aria-hidden="true"><i class="fa fa-clock-o"></i></span>';
-    var ICON_QUESTION = '<span class="plagiarism-dixeo-icon" aria-hidden="true"><i class="fa fa-list-alt"></i></span>';
-
-    /** Render one question and footer (Prev/Next left, timers + Submit right). */
-    function renderQuestionScreen(ctx, titleEl, counterEl, donutEl, counterWrapEl, bodyEl, footerEl, modalEl) {
-        var q = ctx.questions[ctx.currentIndex];
-        if (!q) {
-            return;
-        }
-        var total = ctx.questions.length;
-        var current = ctx.currentIndex + 1;
-        var pct = total > 0 ? (current / total) * 100 : 0;
-        if (counterWrapEl) {
-            counterWrapEl.style.display = '';
-        }
-        if (counterEl) {
-            counterEl.textContent = current + '/' + total;
-        }
-        if (donutEl) {
-            donutEl.style.setProperty('--p', String(pct));
-        }
-        ensureCurrentQuestionStartedAt(ctx);
-        var qId = q.id || ('q' + ctx.currentIndex);
-        var totalRem = getRemainingTotal(ctx);
-        var qRem = getRemainingQuestion(ctx);
-
-        bodyEl.innerHTML = '<div class="plagiarism-dixeo-question-content">' +
-            renderOneQuestionHtml(q, qId, ctx.responses[qId], ctx.strings, ctx.currentIndex + 1) + '</div>';
-        if (qRem === 0) {
-            lockCurrentQuestionInputs(bodyEl, modalEl, ctx);
-        }
-
-        var prevDisabled = !ctx.allowBackwards || ctx.currentIndex === 0;
-        var showNext = ctx.currentIndex < ctx.questions.length - 1;
-        var nextDisabled = showNext && !ctx.allowBackwards && ctx.nextUnlockAt > Math.floor(Date.now() / 1000);
-        var submitEnabled = Object.keys(ctx.visited).length >= ctx.questions.length;
-
-        var leftBtns = '<button type="button" class="btn btn-secondary plagiarism-dixeo-verification-prev" ' +
-            (prevDisabled ? ' disabled' : '') + '>' + ctx.strings.previous + '</button>';
-        if (showNext) {
-            leftBtns += ' <button type="button" class="btn btn-primary plagiarism-dixeo-verification-next" ' +
-                (nextDisabled ? ' disabled' : '') + '>' + ctx.strings.next + '</button>';
-        }
-        var totalDisplay = totalRem !== null ? 'inline-flex' : 'none';
-        var qDisplay = qRem !== null ? 'inline-flex' : 'none';
-        var totalTitle = (ctx.strings.timerTestTooltip || '').replace(/"/g, '&quot;');
-        var questionTitle = (ctx.strings.timerQuestionTooltip || '').replace(/"/g, '&quot;');
-        var rightPart = '<span class="plagiarism-dixeo-footer-total-timer" title="' + totalTitle + '" style="display:' + totalDisplay + '">' +
-            ICON_CLOCK + ' <span class="plagiarism-dixeo-timer-value">' + formatMinutesSeconds(totalRem) + '</span></span>' +
-            ' <span class="plagiarism-dixeo-footer-question-timer" title="' + questionTitle + '" style="display:' + qDisplay + '">' +
-            ICON_QUESTION + ' <span class="plagiarism-dixeo-timer-value">' + formatMinutesSeconds(qRem) + '</span></span>' +
-            ' <button type="button" class="btn btn-success plagiarism-dixeo-verification-submit" ' +
-            (submitEnabled ? '' : ' disabled') + '>' + ctx.strings.submit + '</button>';
-        footerEl.innerHTML = '<div class="plagiarism-dixeo-verification-footer__left">' + leftBtns + '</div>' +
-            '<div class="plagiarism-dixeo-verification-footer__right">' + rightPart + '</div>';
-
-        var prevBtnEl = footerEl.querySelector('.plagiarism-dixeo-verification-prev');
-        if (prevBtnEl) {
-            prevBtnEl.addEventListener('click', function() {
-                if (this.disabled || ctx.currentIndex <= 0) {
-                    return;
-                }
-                captureResponseFromBody(bodyEl, ctx);
-                var now = Math.floor(Date.now() / 1000);
-                var qkey = 'q' + ctx.currentIndex;
-                if (ctx.timings.questions[qkey]) {
-                    ctx.timings.questions[qkey].ended_at = now;
-                    var sq = ctx.timings.questions[qkey];
-                    ctx.timings.questions[qkey].seconds = (sq.ended_at || now) - (sq.started_at || now);
-                }
-                ctx.currentIndex--;
-                ctx.timings.current_index = ctx.currentIndex;
-                var prevQkey = 'q' + ctx.currentIndex;
-                if (!ctx.timings.questions[prevQkey]) {
-                    ctx.timings.questions[prevQkey] = {};
-                }
-                if (!ctx.timings.questions[prevQkey].started_at) {
-                    ctx.timings.questions[prevQkey].started_at = ctx.currentIndex === 0 && ctx.timings.test_started_at
-                        ? ctx.timings.test_started_at
-                        : now;
-                }
-                saveVerificationProgress(ctx, function() {
-                    renderQuestionScreen(ctx, titleEl, counterEl, donutEl, counterWrapEl, bodyEl, footerEl, modalEl);
-                    startTimers(ctx, bodyEl, footerEl, modalEl);
-                });
-            });
-        }
-        var nextBtnEl = footerEl.querySelector('.plagiarism-dixeo-verification-next');
-        if (nextBtnEl) {
-            nextBtnEl.addEventListener('click', function() {
-                if (ctx.currentIndex >= ctx.questions.length - 1) {
-                    return;
-                }
-                captureResponseFromBody(bodyEl, ctx);
-                var now = Math.floor(Date.now() / 1000);
-                var qkey = 'q' + ctx.currentIndex;
-                if (ctx.timings.questions[qkey]) {
-                    ctx.timings.questions[qkey].ended_at = now;
-                    var sq2 = ctx.timings.questions[qkey];
-                    ctx.timings.questions[qkey].seconds = (sq2.ended_at || now) - (sq2.started_at || now);
-                }
-                if (!ctx.allowBackwards) {
-                    ctx.nextUnlockAt = now + ctx.nextDelaySec;
-                }
-                ctx.currentIndex++;
-                ctx.visited[ctx.currentIndex] = true;
-                ctx.timings.current_index = ctx.currentIndex;
-                var nextQkey = 'q' + ctx.currentIndex;
-                if (!ctx.timings.questions[nextQkey]) {
-                    ctx.timings.questions[nextQkey] = {};
-                }
-                if (!ctx.timings.questions[nextQkey].started_at) {
-                    ctx.timings.questions[nextQkey].started_at = now;
-                }
-                saveVerificationProgress(ctx, function() {
-                    renderQuestionScreen(ctx, titleEl, counterEl, donutEl, counterWrapEl, bodyEl, footerEl, modalEl);
-                    var nBtn = footerEl.querySelector('.plagiarism-dixeo-verification-next');
-                    if (nBtn && !ctx.allowBackwards) {
-                        nBtn.disabled = true;
-                        var unlockAt = ctx.nextUnlockAt;
-                        var check = setInterval(function() {
-                            if (Math.floor(Date.now() / 1000) >= unlockAt) {
-                                nBtn.disabled = false;
-                                clearInterval(check);
-                            }
-                        }, 500);
-                    }
-                    startTimers(ctx, bodyEl, footerEl, modalEl);
-                });
-            });
-        }
-        var submitBtnEl = footerEl.querySelector('.plagiarism-dixeo-verification-submit');
-        if (submitBtnEl) {
-            submitBtnEl.addEventListener('click', function() {
-                if (this.disabled) {
-                    return;
-                }
-                this.disabled = true;
-                doVerificationSubmit(ctx, bodyEl, modalEl);
-            });
-        }
-    }
-
-    /** Read current question answer from body into ctx.responses. */
-    function captureResponseFromBody(bodyEl, ctx) {
-        var q = ctx.questions[ctx.currentIndex];
-        if (!q) {
-            return;
-        }
-        var qId = q.id || ('q' + ctx.currentIndex);
-        var input = bodyEl.querySelector('input[name="authorship_q[' + qId + ']"]:checked');
-        if (input) {
-            ctx.responses[qId] = input.value;
-            return;
-        }
-        var sel = bodyEl.querySelector('select[name="authorship_q[' + qId + ']"]');
-        if (sel) {
-            ctx.responses[qId] = sel.value || '';
-            return;
-        }
-        var textarea = bodyEl.querySelector('textarea[name="authorship_q[' + qId + ']"]');
-        if (textarea) {
-            ctx.responses[qId] = textarea.value || '';
-        }
-    }
-
-    /** Persist responses and timings via save_verification_progress. */
-    function saveVerificationProgress(ctx, callback) {
+    function verifyAndSubmit(form, $modal, submitBtn, collected) {
         Ajax.call([{
-            methodname: 'plagiarism_dixeo_save_verification_progress',
+            methodname: 'plagiarism_dixeo_verify_authorship',
             args: {
-                record_id: ctx.recordId,
-                responses: JSON.stringify(ctx.responses),
-                response_timings: JSON.stringify(ctx.timings)
+                // Web service parameter name is snake_case.
+                // eslint-disable-next-line camelcase
+                record_id: collected.recordId,
+                responses: JSON.stringify(collected.responses)
             },
-            done: function() {
-                if (callback) {
-                    callback();
+            done: function(result) {
+                if (result && result.status === 'failed' && result.errormessage) {
+                    Notification.addNotification({
+                        message: result.errormessage,
+                        type: 'error'
+                    });
+                    submitBtn.disabled = false;
+                    return;
                 }
+                if (result && result.success === false) {
+                    submitBtn.disabled = false;
+                    return;
+                }
+                $modal.modal('hide');
+                submissionAuthorized = true;
+                form.submit();
             },
             fail: function(err) {
                 Notification.exception(err);
-                if (callback) {
-                    callback();
-                }
+                submitBtn.disabled = false;
             }
         }]);
     }
 
-    /** Build HTML for one question (true/false, multiple choice, or open). When timer reaches zero, inputs are locked via lockCurrentQuestionInputs. */
-    function renderOneQuestionHtml(q, qId, currentValue, uiStrings, questionNumber) {
-        var name = 'authorship_q[' + qId + ']';
-        var text = (q.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        var numberedText = (questionNumber ? questionNumber + '. ' : '') + text;
-        var trueLabel = (uiStrings && uiStrings.trueLabel) ? uiStrings.trueLabel : 'True';
-        var falseLabel = (uiStrings && uiStrings.falseLabel) ? uiStrings.falseLabel : 'False';
-        var html = '<div class="form-group"><p class="font-weight-bold">' + numberedText + '</p>';
-        if (q.type === QUESTION_TYPE_TRUE_FALSE) {
-            var valTrue = (currentValue === 'true' || currentValue === '1');
-            var valFalse = (currentValue === 'false' || currentValue === '0');
-            html += '<label class="d-block"><input type="radio" name="' + name + '" value="true" ' +
-                (valTrue ? ' checked' : '') + '> ' + trueLabel + '</label>';
-            html += '<label class="d-block"><input type="radio" name="' + name + '" value="false" ' +
-                (valFalse ? ' checked' : '') + '> ' + falseLabel + '</label>';
-        } else if (q.type === QUESTION_TYPE_MULTIPLE_CHOICE && q.options && q.options.length) {
-            q.options.forEach(function(opt) {
-                var v = (opt.value !== undefined ? opt.value : opt.text) || '';
-                var label = (opt.text !== undefined ? opt.text : opt.value) || v;
-                var checked = currentValue === v ? ' checked' : '';
-                html += '<label class="d-block"><input type="radio" name="' + name + '" value="' +
-                    v.replace(/"/g, '&quot;') + '"' + checked + '> ' +
-                    label.replace(/</g, '&lt;') + '</label>';
+    /**
+     * Show the authorship quiz modal: quiz HTML in body, footer with confirmation checkbox, Cancel, Submit.
+     * Submit enabled only when all questions answered and checkbox checked. On Submit: verify_authorship then form.submit().
+     *
+     * @param {HTMLFormElement} form Assign form to submit after verification.
+     * @param {string} quizHtml HTML fragment containing the quiz form (with authorship_record_id and authorship_q[id]).
+     */
+    function showQuizModal(form, quizHtml) {
+        var modalTitleStr = 'authorship_quiz_modal_title';
+        var confirmStr = 'authorship_confirm_statement';
+        var confirmSubmitStr = 'authorship_confirm_and_submit';
+        var cancelStr = 'authorship_cancel';
+
+        Promise.all([
+            Str.get_string(modalTitleStr, 'plagiarism_dixeo'),
+            Str.get_string(confirmStr, 'plagiarism_dixeo'),
+            Str.get_string(confirmSubmitStr, 'plagiarism_dixeo'),
+            Str.get_string(cancelStr, 'plagiarism_dixeo'),
+            Str.get_string('close', 'plagiarism_dixeo'),
+            Str.get_string('authorship_quiz_load_error', 'plagiarism_dixeo')
+        ]).then(function(labels) {
+            var title = labels[0];
+            var confirmLabel = labels[1];
+            var submitLabel = labels[2];
+            var cancelLabel = labels[3];
+            var closeLabel = labels[4];
+            var loadError = labels[5];
+
+            var existing = document.getElementById(QUIZ_MODAL_ID);
+            if (existing && existing.parentNode) {
+                existing.parentNode.removeChild(existing);
+            }
+
+            var parser = new DOMParser();
+            var parsed = parser.parseFromString(quizHtml.trim(), 'text/html');
+            var quizFragment = parsed.body.firstElementChild;
+            if (!quizFragment || !quizFragment.querySelector) {
+                Notification.addNotification({message: loadError, type: 'error'});
+                return null;
+            }
+            var actionsDiv = quizFragment.querySelector('.authorship-quiz-actions');
+            if (actionsDiv && actionsDiv.parentNode) {
+                actionsDiv.parentNode.removeChild(actionsDiv);
+            }
+
+            var modal = document.createElement('div');
+            modal.id = QUIZ_MODAL_ID;
+            modal.className = 'modal fade';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-hidden', 'true');
+
+            var dialog = document.createElement('div');
+            dialog.className = 'modal-dialog modal-lg';
+            dialog.setAttribute('role', 'document');
+            var content = document.createElement('div');
+            content.className = 'modal-content';
+
+            var header = document.createElement('div');
+            header.className = 'modal-header';
+            var titleEl = document.createElement('h5');
+            titleEl.className = 'modal-title';
+            titleEl.textContent = title;
+            var closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'close';
+            closeBtn.setAttribute('data-dismiss', 'modal');
+            closeBtn.setAttribute('aria-label', closeLabel);
+            closeBtn.innerHTML = '<span aria-hidden="true">&times;</span>';
+            header.appendChild(titleEl);
+            header.appendChild(closeBtn);
+
+            var body = document.createElement('div');
+            body.className = 'modal-body local-dixeo-ux-quiz-body';
+            body.appendChild(quizFragment);
+
+            var footer = document.createElement('div');
+            footer.className = 'modal-footer';
+            var confirmLabelEl = document.createElement('label');
+            confirmLabelEl.className = 'mr-auto mb-0';
+            var confirmCb = document.createElement('input');
+            confirmCb.type = 'checkbox';
+            confirmCb.className = 'local-dixeo-ux-confirm-checkbox';
+            confirmLabelEl.appendChild(confirmCb);
+            confirmLabelEl.appendChild(document.createTextNode(' ' + confirmLabel));
+            var cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'btn btn-secondary local-dixeo-ux-quiz-cancel';
+            cancelBtn.textContent = cancelLabel;
+            var submitBtn = document.createElement('button');
+            submitBtn.type = 'button';
+            submitBtn.className = 'btn btn-primary local-dixeo-ux-quiz-submit';
+            submitBtn.disabled = true;
+            submitBtn.textContent = submitLabel;
+            footer.appendChild(confirmLabelEl);
+            footer.appendChild(cancelBtn);
+            footer.appendChild(submitBtn);
+
+            content.appendChild(header);
+            content.appendChild(body);
+            content.appendChild(footer);
+            dialog.appendChild(content);
+            modal.appendChild(dialog);
+            document.body.appendChild(modal);
+
+            var $modal = $(modal);
+
+            /**
+             * Enable or disable the quiz submit button based on answers and confirmation checkbox.
+             */
+            function updateSubmitState() {
+                var allAnswered = allQuizQuestionsAnswered(body);
+                var confirmed = confirmCb && confirmCb.checked;
+                submitBtn.disabled = !(allAnswered && confirmed);
+            }
+
+            body.addEventListener('change', updateSubmitState);
+            body.addEventListener('input', updateSubmitState);
+            confirmCb.addEventListener('change', updateSubmitState);
+
+            cancelBtn.addEventListener('click', function() {
+                $modal.modal('hide');
             });
-        } else {
-            html += '<textarea name="' + name + '" class="form-control" rows="4">' +
-                (currentValue || '').replace(/</g, '&lt;') + '</textarea>';
-        }
-        html += '</div>';
-        return html;
+            $modal.on('hidden.bs.modal', function() {
+                if (modal.parentNode) {
+                    modal.parentNode.removeChild(modal);
+                }
+            });
+
+            submitBtn.addEventListener('click', function() {
+                if (submitBtn.disabled) {
+                    return;
+                }
+                var collected = collectQuizResponses(body);
+                if (collected.recordId <= 0) {
+                    notifyMissingRecord();
+                    submitBtn.disabled = false;
+                    return;
+                }
+                submitBtn.disabled = true;
+                verifyAndSubmit(form, $modal, submitBtn, collected);
+            });
+
+            $modal.modal({backdrop: 'static', keyboard: false});
+            return null;
+        }).catch(function(err) {
+            Notification.exception(err);
+        });
     }
-    /* eslint-enable jsdoc/require-jsdoc, jsdoc/require-param, max-len */
 
     /**
      * Initialize after full page load. Waits for window 'load' before doing anything.

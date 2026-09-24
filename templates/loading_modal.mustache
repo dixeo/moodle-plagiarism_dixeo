@@ -1,16 +1,24 @@
 {{!
-    Locked modal shown while loading (spinner + configurable text).
-    Pass "message" (or "text") when rendering, e.g. for "Analyzing..." or "Verifying...".
-
     @template plagiarism_dixeo/loading_modal
-    @param string message Text to show below the spinner (required).
+
+    Locked Bootstrap modal shown while an assign UX job is in progress.
+
+    Context variables required for this template:
+    * message - string - Text shown below the spinner (required)
+
+    Example context (json):
+    {
+        "message": "Analyzing..."
+    }
 }}
-<div id="plagiarism_dixeo_loading_modal" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="plagiarism_dixeo_loading_modal_label" aria-hidden="true">
+<div id="plagiarism_dixeo_loading_modal" class="modal fade" tabindex="-1" role="dialog"
+     aria-labelledby="plagiarism_dixeo_loading_modal_label" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered" role="document">
         <div class="modal-content">
             <div class="modal-body text-center py-4">
-                <div class="plagiarism-dixeo-modal-spinner mb-3"></div>
-                <div class="plagiarism-dixeo-modal-text">{{message}}</div>
+                <h5 id="plagiarism_dixeo_loading_modal_label" class="sr-only">{{message}}</h5>
+                <div class="local-dixeo-ux-modal-spinner mb-3"></div>
+                <div class="local-dixeo-ux-modal-text">{{message}}</div>
             </div>
         </div>
     </div>
