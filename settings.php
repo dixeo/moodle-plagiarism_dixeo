@@ -1,13 +1,13 @@
 <?php
 // This file is part of Moodle - http://moodle.org/
 //
-// Moodle is free software: you can redistribute it and/or modify it
-// under the terms of the GNU General Public License as published by
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// Moodle is distributed in the hope that it will be useful, but
-// WITHOUT ANY WARRANTY; without even the implied warranty of
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
@@ -15,12 +15,13 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Admin settings for plagiarism_dixeo.
- * Uses a custom form and get_config/set_config like plagiarism_urkund.
+ * Site settings page for the Dixeo plagiarism plugin.
+ *
+ * Plagiarism plugins are registered as an admin_externalpage, so this file renders the
+ * settings form itself and stores values with set_config under the plagiarism_dixeo scope.
  *
  * @package    plagiarism_dixeo
- * @author     Josemaria Bolanos <admin@mako.digital>
- * @copyright  2026 Dixeo.com
+ * @copyright  2026 Dixeo (contact@dixeo.com)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -31,8 +32,7 @@ require_once(__DIR__ . '/classes/setup_form.php');
 require_login();
 admin_externalpage_setup('plagiarismdixeo');
 
-$context = context_system::instance();
-require_capability('moodle/site:config', $context);
+require_capability('moodle/site:config', context_system::instance());
 
 $mform = new plagiarism_dixeo_setup_form();
 
@@ -41,54 +41,18 @@ if ($mform->is_cancelled()) {
 }
 
 if ($data = $mform->get_data()) {
-    // Checkboxes: when unchecked they are not in $data.
-    if (!isset($data->enabled)) {
-        $data->enabled = 0;
-    }
-    if (!isset($data->enable_mod_assign)) {
-        $data->enable_mod_assign = 0;
-    }
-    if (!isset($data->verification_test)) {
-        $data->verification_test = 0;
-    }
-
-    $configfields = [
-        'enabled',
-        'student_disclosure',
-        'enable_mod_assign',
-        'assign_trigger',
-        'evaluation_mode',
-        'verification_test',
-        'authorship_threshold',
-        'authorship_count_true_false',
-        'authorship_count_multiple_choice',
-        'authorship_count_open',
-        'quiz_total_time',
-        'quiz_time_true_false',
-        'quiz_time_multiple_choice',
-        'quiz_time_open',
-        'allow_backwards_navigation',
-        'next_button_delay_seconds',
-    ];
-    foreach ($configfields as $field) {
+    foreach (plagiarism_dixeo_setup_form::get_config_fields() as $field) {
         if (!isset($data->$field)) {
             continue;
         }
-        $value = $data->$field;
-        if (is_string($value)) {
-            $value = trim($value);
-        }
-        set_config($field, $value, 'plagiarism_dixeo');
+        set_config($field, $data->$field, 'plagiarism_dixeo');
     }
     redirect($PAGE->url, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
-// Load current config and pass to form (same as Urkund).
-$config = (array) get_config('plagiarism_dixeo');
-$mform->set_data($config);
+$mform->set_data((array) get_config('plagiarism_dixeo'));
 
 echo $OUTPUT->header();
-echo $OUTPUT->box_start('generalbox boxaligncenter', 'intro');
+echo $OUTPUT->heading(get_string('pluginname', 'plagiarism_dixeo'));
 $mform->display();
-echo $OUTPUT->box_end();
 echo $OUTPUT->footer();
