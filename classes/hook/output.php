@@ -1,54 +1,69 @@
 <?php
-// This file is part of Moodle - http://moodle.org/
+// This file is part of Moodle - https://moodle.org/
 //
-// Moodle is free software: you can redistribute it and/or modify it
-// under the terms of the GNU General Public License as published by
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// Moodle is distributed in the hope that it will be useful, but
-// WITHOUT ANY WARRANTY; without even the implied warranty of
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Hook callbacks for head output (AMD script injection on assign view/grader).
+ * Hook callbacks for head output (URL-based AMD script injection).
  *
  * @package    plagiarism_dixeo
- * @author     Josemaria Bolanos <admin@mako.digital>
- * @copyright  2026 Dixeo.com
+ * @copyright  2026 Dixeo (contact@dixeo.com)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace plagiarism_dixeo\hook;
 
 /**
- * Hook callbacks for head output (URL-based AMD script injection).
+ * Injects assign Analyze AMD modules on matching assign view URLs.
  */
 class output {
-
-    /** Match type: path contains the pattern (substring). */
+    /**
+     * Match type: path contains the pattern (substring).
+     */
     private const MATCH_CONTAINS = 'contains';
 
-    /** Match type: path equals the pattern exactly. */
+    /**
+     * Match type: path equals the pattern exactly.
+     */
     private const MATCH_EXACT = 'exact';
 
-    /** Match type: pattern is a PCRE regex matched against the path. */
+    /**
+     * Match type: pattern is a PCRE regex matched against the path.
+     */
     private const MATCH_REGEX = 'regex';
 
     /**
-     * URL path patterns and the AMD module to load when the current URL matches.
+     * URL path patterns and AMD modules to load on matching assign view URLs.
      *
-     * @var list<array{pattern: string, match?: string, query_param?: array<string, string>, amd: array}>
+     * Each entry: pattern, match type, optional query_param, amd [module, method, args].
+     *
+     * A query_param value may be a single accepted value or a list of accepted values. Missing
+     * parameters compare as an empty string, so '' matches URLs where the parameter is absent or
+     * left at its default (mod/assign/view.php sets an empty action on the submission page).
+     *
+     * @var list<array{
+     *     pattern: string,
+     *     match?: string,
+     *     query_param?: array<string, string|list<string>>,
+     *     amd: array{0: string, 1: string, 2: array}
+     * }>
      */
-    private static $url_script_map = [
+    private static $urlscriptmap = [
         [
             'pattern'     => 'mod/assign/view.php',
             'match'      => self::MATCH_CONTAINS,
-            'query_param' => ['action' => 'view'],
+            'query_param' => ['action' => ['', 'view']],
             'amd'        => ['plagiarism_dixeo/mod_assign_pre_submission', 'init', []],
         ],
         [
@@ -77,7 +92,7 @@ class output {
         }
         $path = $page->url->get_path();
 
-        foreach (self::$url_script_map as $entry) {
+        foreach (self::$urlscriptmap as $entry) {
             $pattern = $entry['pattern'];
             $matchtype = $entry['match'] ?? self::MATCH_CONTAINS;
             $amdconfig = $entry['amd'];
@@ -94,7 +109,9 @@ class output {
 
             if ($matched && $queryparam !== null) {
                 foreach ($queryparam as $name => $value) {
-                    if ($page->url->get_param($name) != $value) {
+                    $actual = (string) ($page->url->get_param($name) ?? '');
+                    $accepted = array_map('strval', is_array($value) ? $value : [$value]);
+                    if (!in_array($actual, $accepted, true)) {
                         $matched = false;
                         break;
                     }

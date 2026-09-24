@@ -1,155 +1,111 @@
 <?php
-// This file is part of Moodle - http://moodle.org/
+// This file is part of Moodle - https://moodle.org/
 //
-// Moodle is free software: you can redistribute it and/or modify it
-// under the terms of the GNU General Public License as published by
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// Moodle is distributed in the hope that it will be useful, but
-// WITHOUT ANY WARRANTY; without even the implied warranty of
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
  * External API: pre-submission feedback (student Analyze step).
  *
  * @package    plagiarism_dixeo
- * @author     Josemaria Bolanos <admin@mako.digital>
- * @copyright  2026 Dixeo.com
+ * @copyright  2026 Dixeo (contact@dixeo.com)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace plagiarism_dixeo\external;
 
-use context_system;
-use context_user;
 use core_external\external_api;
 use core_external\external_function_parameters;
+use core_external\external_single_structure;
 use core_external\external_value;
-use plagiarism_dixeo\local\presubmission_feedback_storage;
-use plagiarism_dixeo\modules\assign;
+use local_dixeo\external\response_factory;
+use local_dixeo\external\service_factory;
+use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 
-defined('MOODLE_INTERNAL') || die();
 
 /**
- * Pre-submission feedback (student Analyze step). Returns HTML feedback from AI review or an error message.
+ * Submits an assign review job; client polls get_assign_job_status for the result.
  */
 class mod_assign_pre_submission extends external_api {
-
     /**
-     * Parameters for execute: course module id only.
+     * Describe parameters for pre-submission Analyze.
      *
-     * @return \core_external\external_function_parameters
+     * @return external_function_parameters
      */
-    public static function execute_parameters(): \core_external\external_function_parameters {
+    public static function execute_parameters(): external_function_parameters {
         return new external_function_parameters([
             'id' => new external_value(PARAM_INT, 'Course module ID (assign instance).'),
         ]);
     }
 
     /**
-     * Return pre-submission feedback (HTML) so the student can improve before submitting.
+     * Submit student Analyze job (async).
      *
-     * @param int $id Course module ID (assign instance).
-     * @return string HTML fragment to insert after the submission header.
-     * @throws \moodle_exception If capability or course module check fails.
+     * @param int $id Course module ID.
+     * @return array{jobid: string, status: string, progress: int, courseid: int, html: string, errormessage: string}
+     * @throws \moodle_exception
      */
-    public static function execute(int $id): string {
+    public static function execute(int $id): array {
         global $USER;
 
-        $params = self::validate_parameters(self::execute_parameters(), ['id' => $id]);
-
-        $context = context_user::instance($USER->id);
-        require_capability('plagiarism/dixeo:mod_assign_pre_submission', $context);
-
-        if ($params['id'] <= 0) {
-            return self::feedback_error_html(get_string('assign_pre_submission_context_required', 'plagiarism_dixeo'));
-        }
-
-        get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
-        $assignmentcontext = assign::get_assignment_context($params['id']);
-        $submissiondata = assign::get_submission_data($params['id'], $USER->id);
-
-        $submission = $submissiondata['submission'] ?? null;
-        $itemid = $submission ? (int) $submission->id : 0;
-        if ($itemid <= 0) {
-            return self::feedback_error_html(get_string('assign_pre_submission_context_required', 'plagiarism_dixeo'));
-        }
-
-        $existing = presubmission_feedback_storage::get_by_context(
-            (int) $USER->id,
-            'mod_assign',
-            'submission',
-            $itemid
-        );
-        if ($existing && trim((string) ($existing->feedback ?? '')) !== '') {
-            return self::feedback_html_wrapper((string) $existing->feedback);
-        }
-
-        $evaluation = assign::evaluate(
-            $assignmentcontext,
-            $submissiondata,
-            assign::EVALUATION_MODE_REVIEW
-        );
-
-        if (!empty($evaluation['error'])) {
-            return self::feedback_error_html($evaluation['error']);
-        }
-
-        $feedbackhtml = $evaluation['feedback_html'] ?? '';
-        presubmission_feedback_storage::create_record(
-            (int) $USER->id,
-            'mod_assign',
-            'submission',
-            $itemid,
-            $feedbackhtml,
-            isset($submission->timemodified) ? (int) $submission->timemodified : null,
-            isset($submission->attemptnumber) ? (int) $submission->attemptnumber : null
-        );
-
-        return self::feedback_html_wrapper($feedbackhtml);
-    }
-
-    /**
-     * Wrap AI feedback content in a styled container.
-     *
-     * @param string $html Raw HTML from the AI.
-     * @return string
-     */
-    public static function feedback_html_wrapper(string $html): string {
-        $context = context_system::instance();
-        $clean = format_text($html, FORMAT_HTML, [
-            'para'    => true,
-            'filter'  => false,
-            'context' => $context,
+        $params = self::validate_parameters(self::execute_parameters(), [
+            'id' => $id,
         ]);
-        return '<div class="alert alert-info alert-block fade in alert-dismissible plagiarism-dixeo-review-feedback" role="alert">' .
-            $clean .
-            '</div>';
+
+        assign_access::require_student_analyze($params['id']);
+        $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
+        $courseid = (int) $cm->course;
+
+        try {
+            $service = service_factory::get_assign_ux_service(new authorship_persistence_adapter());
+            $operation = $service->submit_review($courseid, (int) $cm->id, (int) $USER->id);
+
+            return [
+                'jobid' => $operation->jobid,
+                'status' => $operation->status ?? 'pending',
+                'progress' => $operation->progress,
+                'courseid' => $courseid,
+                'html' => '',
+                'errormessage' => '',
+            ];
+        } catch (\required_capability_exception | \require_login_exception $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $safe = response_factory::safe_message($e);
+            return [
+                'jobid' => '',
+                'status' => 'failed',
+                'progress' => 0,
+                'courseid' => $courseid,
+                'html' => '',
+                'errormessage' => $safe,
+            ];
+        }
     }
 
     /**
-     * Error message when review fails.
+     * Return structure for pre-submission Analyze.
      *
-     * @param string $message
-     * @return string
+     * @return external_single_structure
      */
-    protected static function feedback_error_html(string $message): string {
-        return '<div class="alert alert-warning alert-block fade in alert-dismissible" role="alert">' .
-            get_string('pluginname', 'plagiarism_dixeo') . ': ' . s($message) .
-            '</div>';
-    }
-
-    /**
-     * Return value of execute: HTML fragment.
-     *
-     * @return \core_external\external_value
-     */
-    public static function execute_returns(): \core_external\external_value {
-        return new external_value(PARAM_RAW, 'HTML fragment for the analysis result.');
+    public static function execute_returns(): external_single_structure {
+        return new external_single_structure([
+            'jobid' => new external_value(PARAM_RAW, 'Remote job id.'),
+            'status' => new external_value(PARAM_ALPHA, 'Job status (pending, processing, completed, failed).'),
+            'progress' => new external_value(PARAM_INT, 'Progress 0–100.'),
+            'courseid' => new external_value(PARAM_INT, 'Course id for polling.'),
+            'html' => new external_value(PARAM_RAW, 'HTML fragment (empty until polled).'),
+            'errormessage' => new external_value(PARAM_TEXT, 'Client-safe error message when failed.'),
+        ]);
     }
 }
