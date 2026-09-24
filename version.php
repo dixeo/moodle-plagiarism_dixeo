@@ -15,18 +15,20 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Dixeo plagiarism plugin version information.
+ * Plugin version and dependencies.
  *
  * @package    plagiarism_dixeo
- * @author     Josemaria Bolanos <admin@mako.digital>
- * @copyright  2026 Dixeo.com
+ * @copyright  2026 Dixeo (contact@dixeo.com)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'plagiarism_dixeo';
-$plugin->version   = 2026022605;
-$plugin->requires  = 2022041900; // Moodle 4.0 or later.
+$plugin->version   = 2026092500;
+$plugin->requires  = 2022112800;
 $plugin->maturity  = MATURITY_ALPHA;
-$plugin->release   = '0.1.0';
+$plugin->release   = '0.2.0';
+$plugin->dependencies = [
+    'local_dixeo' => 2026092100,
+];
