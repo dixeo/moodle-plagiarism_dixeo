@@ -32,7 +32,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
     function showLoadingModal(message) {
         var existing = document.getElementById(LOADING_MODAL_ID);
         if (existing) {
-            var textEl = existing.querySelector('.local-dixeo-ux-modal-text');
+            var textEl = existing.querySelector('.plagiarism-dixeo-modal-text');
             if (textEl) {
                 textEl.textContent = message;
             }
@@ -52,7 +52,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             if (js) {
                 Templates.runTemplateJS(js);
             }
-            LoadingIcon.addIconToContainer(modal.querySelector('.local-dixeo-ux-modal-spinner'));
+            LoadingIcon.addIconToContainer(modal.querySelector('.plagiarism-dixeo-modal-spinner'));
             var $modal = $(modal);
             return new Promise(function(resolve) {
                 $modal.one('shown.bs.modal', function() {
@@ -77,7 +77,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
         return Str.get_string('analysis_aria_label', 'plagiarism_dixeo').then(function(ariaLabel) {
             return Templates.render('plagiarism_dixeo/html_fragment', {
                 html: analysis,
-                classes: 'local-dixeo-ux-grade-analysis alert alert-info',
+                classes: 'plagiarism-dixeo-grade-analysis alert alert-info',
                 arialabel: ariaLabel
             });
         }).then(function(html, js) {

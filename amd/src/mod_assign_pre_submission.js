@@ -75,7 +75,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
     function showLoadingModal(message) {
         var existing = document.getElementById(LOADING_MODAL_ID);
         if (existing) {
-            var textEl = existing.querySelector('.local-dixeo-ux-modal-text');
+            var textEl = existing.querySelector('.plagiarism-dixeo-modal-text');
             if (textEl) {
                 textEl.textContent = message;
             }
@@ -95,7 +95,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             if (js) {
                 Templates.runTemplateJS(js);
             }
-            LoadingIcon.addIconToContainer(modal.querySelector('.local-dixeo-ux-modal-spinner'));
+            LoadingIcon.addIconToContainer(modal.querySelector('.plagiarism-dixeo-modal-spinner'));
             var $modal = $(modal);
             return new Promise(function(resolve) {
                 $modal.one('shown.bs.modal', function() {
@@ -125,7 +125,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             var regionMain = document.getElementById('region-main');
             if (regionMain) {
                 var wrapper = document.createElement('div');
-                wrapper.className = 'local-dixeo-ux-analyze-toolbar mb-3';
+                wrapper.className = 'plagiarism-dixeo-analyze-toolbar mb-3';
                 buttonContainer = wrapper;
                 regionMain.insertBefore(wrapper, regionMain.firstChild);
             } else {
@@ -495,7 +495,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             header.appendChild(closeBtn);
 
             var body = document.createElement('div');
-            body.className = 'modal-body local-dixeo-ux-quiz-body';
+            body.className = 'modal-body plagiarism-dixeo-quiz-body';
             body.appendChild(quizFragment);
 
             var footer = document.createElement('div');
@@ -504,16 +504,16 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             confirmLabelEl.className = 'mr-auto mb-0';
             var confirmCb = document.createElement('input');
             confirmCb.type = 'checkbox';
-            confirmCb.className = 'local-dixeo-ux-confirm-checkbox';
+            confirmCb.className = 'plagiarism-dixeo-confirm-checkbox';
             confirmLabelEl.appendChild(confirmCb);
             confirmLabelEl.appendChild(document.createTextNode(' ' + confirmLabel));
             var cancelBtn = document.createElement('button');
             cancelBtn.type = 'button';
-            cancelBtn.className = 'btn btn-secondary local-dixeo-ux-quiz-cancel';
+            cancelBtn.className = 'btn btn-secondary plagiarism-dixeo-quiz-cancel';
             cancelBtn.textContent = cancelLabel;
             var submitBtn = document.createElement('button');
             submitBtn.type = 'button';
-            submitBtn.className = 'btn btn-primary local-dixeo-ux-quiz-submit';
+            submitBtn.className = 'btn btn-primary plagiarism-dixeo-quiz-submit';
             submitBtn.disabled = true;
             submitBtn.textContent = submitLabel;
             footer.appendChild(confirmLabelEl);

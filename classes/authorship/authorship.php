@@ -130,7 +130,7 @@ class authorship {
         $recordid = $options['record_id'] ?? null;
         $action = $options['form_action_url'] ?? '';
         $submitlabel = $options['submit_label'] ?? get_string('authorship_submit_quiz', 'plagiarism_dixeo');
-        $cssclass = $options['css_class'] ?? 'local-dixeo-ux-authorship-quiz';
+        $cssclass = $options['css_class'] ?? 'plagiarism-dixeo-authorship-quiz';
 
         if (is_object($recordorquizdata) && isset($recordorquizdata->quiz_data)) {
             $quiz = is_string($recordorquizdata->quiz_data)
