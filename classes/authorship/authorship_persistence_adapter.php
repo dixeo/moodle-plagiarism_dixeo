@@ -27,11 +27,14 @@ namespace plagiarism_dixeo\authorship;
 use local_dixeo\service\assign_ux_persistence_interface;
 
 /**
- * Implements assign_ux_persistence_interface against the UX authorship table.
+ * Implements assign_ux_persistence_interface on top of author_storage.
+ *
+ * The interface carries only the fields local_dixeo needs, so this class is a translation
+ * layer: status transitions and field normalisation stay in author_storage.
  */
 class authorship_persistence_adapter implements assign_ux_persistence_interface {
     /** @var string Table name owned by this plugin. */
-    public const TABLE = 'plagiarism_dixeo_authorship';
+    public const TABLE = author_storage::TABLE;
 
     /**
      * Replace any existing row for (userid, component, area, itemid), then insert.
@@ -52,36 +55,10 @@ class authorship_persistence_adapter implements assign_ux_persistence_interface 
         float $initialconfidence,
         ?array $quizdata = null
     ): ?\stdClass {
-        global $DB;
-
-        $DB->delete_records(self::TABLE, [
-            'userid' => $userid,
-            'component' => $component,
-            'area' => $area,
-            'itemid' => $itemid,
-        ]);
-
-        $now = time();
-        $record = (object) [
-            'component' => $component,
-            'area' => $area,
-            'itemid' => $itemid,
+        return author_storage::create_record($userid, $component, $area, $itemid, [
             'initial_confidence' => $initialconfidence,
-            'quiz_data' => $quizdata !== null ? json_encode($quizdata) : null,
-            'quiz_responses' => null,
-            'quiz_grade' => null,
-            'final_confidence' => null,
-            'userid' => $userid,
-            'timecreated' => $now,
-            'timemodified' => $now,
-        ];
-
-        $id = $DB->insert_record(self::TABLE, $record);
-        if ($id === false) {
-            return null;
-        }
-        $record->id = (int) $id;
-        return $record;
+            'quiz_data' => $quizdata,
+        ]);
     }
 
     /**
@@ -91,13 +68,7 @@ class authorship_persistence_adapter implements assign_ux_persistence_interface 
      * @return \stdClass|null
      */
     public function get_authorship_record(int $recordid): ?\stdClass {
-        global $DB;
-
-        if ($recordid <= 0) {
-            return null;
-        }
-        $record = $DB->get_record(self::TABLE, ['id' => $recordid]);
-        return $record ?: null;
+        return author_storage::get_record($recordid);
     }
 
     /**
@@ -115,18 +86,7 @@ class authorship_persistence_adapter implements assign_ux_persistence_interface 
         string $area,
         int $itemid
     ): ?\stdClass {
-        global $DB;
-
-        if ($itemid <= 0) {
-            return null;
-        }
-        $record = $DB->get_record(self::TABLE, [
-            'userid' => $userid,
-            'component' => $component,
-            'area' => $area,
-            'itemid' => $itemid,
-        ]);
-        return $record ?: null;
+        return author_storage::get_record_by_context($userid, $component, $area, $itemid);
     }
 
     /**
@@ -144,19 +104,13 @@ class authorship_persistence_adapter implements assign_ux_persistence_interface 
         float $finalconfidence,
         ?float $quizgrade
     ): ?\stdClass {
-        global $DB;
+        $updated = author_storage::update_record($recordid, [
+            'status' => author_storage::STATUS_COMPLETE,
+            'quiz_responses' => $responses,
+            'final_confidence' => $finalconfidence,
+            'quiz_grade' => $quizgrade,
+        ]);
 
-        $record = $DB->get_record(self::TABLE, ['id' => $recordid]);
-        if (!$record) {
-            return null;
-        }
-
-        $record->quiz_responses = json_encode($responses);
-        $record->final_confidence = $finalconfidence;
-        $record->quiz_grade = $quizgrade;
-        $record->timemodified = time();
-        $DB->update_record(self::TABLE, $record);
-
-        return $record;
+        return $updated ? author_storage::get_record($recordid) : null;
     }
 }

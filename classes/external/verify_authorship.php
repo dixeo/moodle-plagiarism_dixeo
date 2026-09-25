@@ -96,9 +96,10 @@ class verify_authorship extends external_api {
             $decoded = [];
         }
 
-        $quiz = is_string($record->quiz_data ?? '')
-            ? json_decode($record->quiz_data, true)
-            : ($record->quiz_data ?? []);
+        $quiz = $record->quiz_data ?? [];
+        if (is_string($quiz)) {
+            $quiz = json_decode($quiz, true);
+        }
         $questions = is_array($quiz) ? ($quiz['questions'] ?? []) : [];
 
         try {
