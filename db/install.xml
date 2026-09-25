@@ -10,11 +10,19 @@
         <FIELD NAME="component" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="Component e.g. mod_assign"/>
         <FIELD NAME="area" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="Type e.g. submission, forum_post"/>
         <FIELD NAME="itemid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Item id for the component (e.g. submission id)"/>
-        <FIELD NAME="initial_confidence" TYPE="number" LENGTH="5" DECIMALS="2" NOTNULL="true" SEQUENCE="false" COMMENT="0-100 score: 0=AI, 100=Human"/>
+        <FIELD NAME="source_timemodified" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="timemodified of the source record this evaluation was based on"/>
+        <FIELD NAME="source_attempt" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Attempt number of the source record when applicable"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="complete" SEQUENCE="false" COMMENT="pending, verification_required, verification_in_progress or complete"/>
+        <FIELD NAME="initial_confidence" TYPE="number" LENGTH="5" DECIMALS="2" NOTNULL="false" SEQUENCE="false" COMMENT="0-100 score: 0=AI, 100=Human. Null while pending."/>
+        <FIELD NAME="initial_explanation" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Model rationale for the initial score"/>
         <FIELD NAME="quiz_data" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Generated quiz as JSON"/>
         <FIELD NAME="quiz_responses" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Student quiz responses as JSON"/>
+        <FIELD NAME="response_timings" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Server-side quiz timing state as JSON: test_started_at, current_index, questions"/>
         <FIELD NAME="quiz_grade" TYPE="number" LENGTH="5" DECIMALS="2" NOTNULL="false" SEQUENCE="false" COMMENT="Objective grade 0-100 from correct answers (e.g. 3/4 = 75)"/>
+        <FIELD NAME="quiz_explanation" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Model conclusion for the verification quiz"/>
+        <FIELD NAME="quiz_question_feedbacks" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON array: one short feedback line per question"/>
         <FIELD NAME="final_confidence" TYPE="number" LENGTH="5" DECIMALS="2" NOTNULL="false" SEQUENCE="false" COMMENT="Final score after quiz evaluation"/>
+        <FIELD NAME="final_explanation" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Model rationale for the final score"/>
         <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student user id"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
@@ -22,6 +30,62 @@
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
         <KEY NAME="user_component_itemid" TYPE="unique" FIELDS="userid, component, itemid"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="status" UNIQUE="false" FIELDS="status" COMMENT="Pending lookups for the retry task"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="plagiarism_dixeo_presubmission_feedback" COMMENT="Coaching feedback for a submission attempt, one row per attempt.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="component" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="Component e.g. mod_assign"/>
+        <FIELD NAME="area" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="Type e.g. submission"/>
+        <FIELD NAME="itemid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Item id for the component (e.g. submission id)"/>
+        <FIELD NAME="source_timemodified" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="timemodified of the source record this feedback was based on"/>
+        <FIELD NAME="source_attempt" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Attempt number of the source record when applicable"/>
+        <FIELD NAME="feedback" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Coaching feedback HTML as returned by the API"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student user id"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="user_component_itemid" TYPE="unique" FIELDS="userid, component, itemid"/>
+      </KEYS>
+    </TABLE>
+    <TABLE NAME="plagiarism_dixeo_grade_feedback" COMMENT="Draft AI grading result for a submission attempt, pending teacher confirmation.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="component" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="Component e.g. mod_assign"/>
+        <FIELD NAME="area" TYPE="char" LENGTH="100" NOTNULL="true" SEQUENCE="false" COMMENT="Type e.g. submission"/>
+        <FIELD NAME="itemid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Item id for the component (e.g. submission id)"/>
+        <FIELD NAME="source_timemodified" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="timemodified of the source record this draft was based on"/>
+        <FIELD NAME="source_attempt" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Attempt number of the source record when applicable"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="draft" SEQUENCE="false" COMMENT="draft until a teacher saves the grade, then applied"/>
+        <FIELD NAME="gradingmethod" TYPE="char" LENGTH="32" NOTNULL="true" SEQUENCE="false" COMMENT="simple, guide or rubric"/>
+        <FIELD NAME="analysis" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Analysis shown to the teacher only"/>
+        <FIELD NAME="feedback" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Feedback HTML proposed for the student"/>
+        <FIELD NAME="grade" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="false" SEQUENCE="false" COMMENT="Proposed numeric grade, simple grading only"/>
+        <FIELD NAME="criteria" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON array of proposed criterion remarks and scores for guide/rubric"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student the draft grade is for"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="user_component_itemid" TYPE="unique" FIELDS="userid, component, itemid"/>
+      </KEYS>
+    </TABLE>
+    <TABLE NAME="plagiarism_dixeo_config" COMMENT="Per-activity Dixeo settings, keyed by course module.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="cm" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Course module id"/>
+        <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Setting name"/>
+        <FIELD NAME="value" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Setting value"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="cm_name" TYPE="unique" FIELDS="cm, name"/>
       </KEYS>
     </TABLE>
   </TABLES>

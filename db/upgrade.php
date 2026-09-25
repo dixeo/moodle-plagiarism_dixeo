@@ -59,5 +59,96 @@ function xmldb_plagiarism_dixeo_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026092500, 'plagiarism', 'dixeo');
     }
 
+    if ($oldversion < 2026092501) {
+        $authorship = new xmldb_table('plagiarism_dixeo_authorship');
+
+        $newfields = [
+            new xmldb_field('source_timemodified', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'itemid'),
+            new xmldb_field('source_attempt', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'source_timemodified'),
+            new xmldb_field('status', XMLDB_TYPE_CHAR, '32', null, XMLDB_NOTNULL, null, 'complete', 'source_attempt'),
+            new xmldb_field('initial_explanation', XMLDB_TYPE_TEXT, null, null, null, null, null, 'initial_confidence'),
+            new xmldb_field('response_timings', XMLDB_TYPE_TEXT, null, null, null, null, null, 'quiz_responses'),
+            new xmldb_field('quiz_explanation', XMLDB_TYPE_TEXT, null, null, null, null, null, 'quiz_grade'),
+            new xmldb_field('quiz_question_feedbacks', XMLDB_TYPE_TEXT, null, null, null, null, null, 'quiz_explanation'),
+            new xmldb_field('final_explanation', XMLDB_TYPE_TEXT, null, null, null, null, null, 'final_confidence'),
+        ];
+        foreach ($newfields as $field) {
+            if (!$dbman->field_exists($authorship, $field)) {
+                $dbman->add_field($authorship, $field);
+            }
+        }
+
+        // Pending records are created before the confidence score is known.
+        $dbman->change_field_notnull(
+            $authorship,
+            new xmldb_field('initial_confidence', XMLDB_TYPE_NUMBER, '5,2', null, null, null, null, 'status')
+        );
+
+        $statusindex = new xmldb_index('status', XMLDB_INDEX_NOTUNIQUE, ['status']);
+        if (!$dbman->index_exists($authorship, $statusindex)) {
+            $dbman->add_index($authorship, $statusindex);
+        }
+
+        // Rows carrying an unanswered quiz predate the status column and are awaiting verification.
+        $DB->set_field_select(
+            'plagiarism_dixeo_authorship',
+            'status',
+            'verification_required',
+            'quiz_data IS NOT NULL AND final_confidence IS NULL'
+        );
+
+        $presubmission = new xmldb_table('plagiarism_dixeo_presubmission_feedback');
+        $presubmission->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE);
+        $presubmission->add_field('component', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL);
+        $presubmission->add_field('area', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL);
+        $presubmission->add_field('itemid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $presubmission->add_field('source_timemodified', XMLDB_TYPE_INTEGER, '10', null, null);
+        $presubmission->add_field('source_attempt', XMLDB_TYPE_INTEGER, '10', null, null);
+        $presubmission->add_field('feedback', XMLDB_TYPE_TEXT, null, null, null);
+        $presubmission->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $presubmission->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $presubmission->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $presubmission->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $presubmission->add_key('user_component_itemid', XMLDB_KEY_UNIQUE, ['userid', 'component', 'itemid']);
+        if (!$dbman->table_exists($presubmission)) {
+            $dbman->create_table($presubmission);
+        }
+
+        $gradefeedback = new xmldb_table('plagiarism_dixeo_grade_feedback');
+        $gradefeedback->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE);
+        $gradefeedback->add_field('component', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL);
+        $gradefeedback->add_field('area', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL);
+        $gradefeedback->add_field('itemid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $gradefeedback->add_field('source_timemodified', XMLDB_TYPE_INTEGER, '10', null, null);
+        $gradefeedback->add_field('source_attempt', XMLDB_TYPE_INTEGER, '10', null, null);
+        $gradefeedback->add_field('status', XMLDB_TYPE_CHAR, '32', null, XMLDB_NOTNULL, null, 'draft');
+        $gradefeedback->add_field('gradingmethod', XMLDB_TYPE_CHAR, '32', null, XMLDB_NOTNULL);
+        $gradefeedback->add_field('analysis', XMLDB_TYPE_TEXT, null, null, null);
+        $gradefeedback->add_field('feedback', XMLDB_TYPE_TEXT, null, null, null);
+        $gradefeedback->add_field('grade', XMLDB_TYPE_NUMBER, '10,5', null, null);
+        $gradefeedback->add_field('criteria', XMLDB_TYPE_TEXT, null, null, null);
+        $gradefeedback->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $gradefeedback->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $gradefeedback->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $gradefeedback->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $gradefeedback->add_key('user_component_itemid', XMLDB_KEY_UNIQUE, ['userid', 'component', 'itemid']);
+        if (!$dbman->table_exists($gradefeedback)) {
+            $dbman->create_table($gradefeedback);
+        }
+
+        $config = new xmldb_table('plagiarism_dixeo_config');
+        $config->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE);
+        $config->add_field('cm', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $config->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL);
+        $config->add_field('value', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL);
+        $config->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $config->add_key('cm_name', XMLDB_KEY_UNIQUE, ['cm', 'name']);
+        if (!$dbman->table_exists($config)) {
+            $dbman->create_table($config);
+        }
+
+        upgrade_plugin_savepoint(true, 2026092501, 'plagiarism', 'dixeo');
+    }
+
     return true;
 }
