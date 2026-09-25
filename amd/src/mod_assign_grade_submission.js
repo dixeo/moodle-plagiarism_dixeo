@@ -297,6 +297,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
      * @returns {Promise}
      */
     function loadDraftGrade(cmid, uid) {
+        var draft = null;
+
         return Ajax.call([{
             methodname: 'plagiarism_dixeo_get_grade_draft',
             args: {id: cmid, userid: uid}
@@ -304,9 +306,10 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             if (!data || !data.hasdraft) {
                 return null;
             }
-            return showDraftNotice().then(function() {
-                return applyResponse(data);
-            });
+            draft = data;
+            return showDraftNotice();
+        }).then(function() {
+            return draft ? applyResponse(draft) : null;
         }).catch(function() {
             // A missing draft must never stop the teacher from grading by hand.
             return null;
