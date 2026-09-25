@@ -207,9 +207,8 @@ class get_assign_job_status extends external_api {
             'filter' => false,
             'context' => $modcontext,
         ]);
-        $html = '<div class="alert alert-info alert-block fade in alert-dismissible plagiarism-dixeo-review-feedback" role="alert">' .
-            $clean .
-            '</div>';
+        $classes = 'alert alert-info alert-block fade in alert-dismissible plagiarism-dixeo-review-feedback';
+        $html = '<div class="' . $classes . '" role="alert">' . $clean . '</div>';
         return [
             'jobid' => $jobid,
             'status' => 'completed',

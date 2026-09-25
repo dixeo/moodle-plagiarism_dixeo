@@ -33,7 +33,6 @@ require_once($CFG->libdir . '/formslib.php');
  * admin_settingpage, so the fields are defined here and persisted by settings.php.
  */
 class plagiarism_dixeo_setup_form extends moodleform {
-
     /**
      * Field names this form owns, in the order they are stored.
      *
@@ -129,8 +128,10 @@ class plagiarism_dixeo_setup_form extends moodleform {
         $errors = parent::validation($data, $files);
 
         $threshold = (int) ($data['authorship_threshold'] ?? 0);
-        if ($threshold < \plagiarism_dixeo\authorship\authorship::CONFIDENCE_MIN
-                || $threshold > \plagiarism_dixeo\authorship\authorship::CONFIDENCE_MAX) {
+        if (
+            $threshold < \plagiarism_dixeo\authorship\authorship::CONFIDENCE_MIN
+            || $threshold > \plagiarism_dixeo\authorship\authorship::CONFIDENCE_MAX
+        ) {
             $errors['authorship_threshold'] = get_string('authorship_threshold_invalid', 'plagiarism_dixeo');
         }
 
