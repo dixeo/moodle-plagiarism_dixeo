@@ -174,6 +174,12 @@ class analyze_submission extends \core\task\adhoc_task {
             return;
         }
 
+        $existing = author_storage::get_record_by_context($userid, self::COMPONENT, self::AREA, (int) $submission->id);
+        if ($existing && self::authorship_already_settled($existing)) {
+            mtrace("plagiarism_dixeo: authorship already recorded for submission {$submission->id}, skipping.");
+            return;
+        }
+
         $confidence = $this->run_authorship_step($service, $courseid, $cmid, $userid, assign_ux_service::MODE_CONFIDENCE);
         $score = (float) $confidence['confidence'];
 
@@ -256,5 +262,16 @@ class analyze_submission extends \core\task\adhoc_task {
      */
     private static function is_verification_test_enabled(): bool {
         return (int) get_config('plagiarism_dixeo', 'verification_test') === 1;
+    }
+
+    /**
+     * Whether the student already has a quiz or a final score for this submission.
+     *
+     * @param \stdClass $record Authorship row.
+     * @return bool
+     */
+    private static function authorship_already_settled(\stdClass $record): bool {
+        $status = (string) ($record->status ?? '');
+        return !in_array($status, [author_storage::STATUS_PENDING, author_storage::STATUS_FAILED], true);
     }
 }

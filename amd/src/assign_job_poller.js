@@ -35,6 +35,18 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
      */
     function poll(jobid, courseid, cmid, flow) {
         var started = Date.now();
+        var timedOut = false;
+
+        /**
+         * Reject with the client-facing timeout string.
+         *
+         * @returns {Promise}
+         */
+        function timeoutError() {
+            return Str.get_string('job_poll_timeout', 'plagiarism_dixeo').then(function(msg) {
+                throw new Error(msg);
+            });
+        }
 
         /**
          * One poll tick.
@@ -42,10 +54,8 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
          * @returns {Promise<Object>}
          */
         function tick() {
-            if (Date.now() - started > TIMEOUT_MS) {
-                return Str.get_string('job_poll_timeout', 'plagiarism_dixeo').then(function(msg) {
-                    throw new Error(msg);
-                });
+            if (timedOut || Date.now() - started > TIMEOUT_MS) {
+                return timeoutError();
             }
 
             return Ajax.call([{
@@ -60,7 +70,7 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
                 if (!data) {
                     throw new Error('empty');
                 }
-                if (data.status === 'completed' || data.status === 'failed') {
+                if (data.status === 'completed' || data.status === 'failed' || data.status === 'complete') {
                     return data;
                 }
                 return INTERVAL_MS;
@@ -74,7 +84,12 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
             });
         }
 
-        return delay(INITIAL_DELAY_MS).then(tick);
+        var work = delay(INITIAL_DELAY_MS).then(tick);
+        var limit = delay(TIMEOUT_MS).then(function() {
+            timedOut = true;
+            return timeoutError();
+        });
+        return Promise.race([work, limit]);
     }
 
     return {

@@ -25,6 +25,7 @@
 
 namespace plagiarism_dixeo;
 
+use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\authorship\authorship;
 
 
@@ -95,6 +96,32 @@ final class authorship_helpers_test extends \advanced_testcase {
             'q2' => 'b',
         ]);
         $this->assertSame(50.0, $gradepartial);
+    }
+
+    public function test_a_quiz_in_progress_is_resumable(): void {
+        $open = (object) [
+            'status' => author_storage::STATUS_VERIFICATION_IN_PROGRESS,
+            'quiz_data' => json_encode([
+                'questions' => [['id' => 'q1', 'type' => authorship::QUESTION_TYPE_OPEN, 'text' => 'Why?']],
+            ]),
+        ];
+        $this->assertTrue(authorship::is_resumable_record($open));
+
+        $required = clone $open;
+        $required->status = author_storage::STATUS_VERIFICATION_REQUIRED;
+        $this->assertTrue(authorship::is_resumable_record($required));
+    }
+
+    public function test_a_finished_or_empty_quiz_is_not_resumable(): void {
+        $this->assertFalse(authorship::is_resumable_record(null));
+        $this->assertFalse(authorship::is_resumable_record((object) [
+            'status' => author_storage::STATUS_COMPLETE,
+            'quiz_data' => json_encode(['questions' => [['id' => 'q1']]]),
+        ]));
+        $this->assertFalse(authorship::is_resumable_record((object) [
+            'status' => author_storage::STATUS_VERIFICATION_IN_PROGRESS,
+            'quiz_data' => json_encode(['questions' => []]),
+        ]));
     }
 
     public function test_render_quiz_form_escapes_question_text(): void {
