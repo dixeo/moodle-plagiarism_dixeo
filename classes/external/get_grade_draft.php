@@ -72,7 +72,7 @@ class get_grade_draft extends external_api {
             'userid' => $userid,
         ]);
 
-        assign_access::require_teacher_grade($params['id']);
+        $context = assign_access::require_teacher_grade($params['id']);
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
 
         $submissionid = (int) $DB->get_field(
@@ -91,12 +91,14 @@ class get_grade_draft extends external_api {
         }
 
         $result = grade_feedback_storage::record_to_result($record);
+        // The proposal is model output, so it is purified here just as the live grading flow does.
+        $options = ['context' => $context, 'para' => false];
 
         return [
             'hasdraft' => true,
             'gradingmethod' => $result['gradingmethod'],
-            'analysis' => $result['analysis'],
-            'feedback' => $result['feedback'],
+            'analysis' => format_text($result['analysis'], FORMAT_HTML, $options),
+            'feedback' => format_text($result['feedback'], FORMAT_HTML, $options),
             'grade' => $result['grade'] ?? null,
             'criteria' => $result['criteria'] ?? [],
             'timecreated' => (int) $record->timecreated,
