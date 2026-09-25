@@ -65,6 +65,16 @@ $functions = [
         'capabilities'  => 'plagiarism/dixeo:mod_assign_pre_submission',
         'loginrequired' => true,
     ],
+    'plagiarism_dixeo_get_grade_draft' => [
+        'classname'     => 'plagiarism_dixeo\external\get_grade_draft',
+        'methodname'    => 'execute',
+        'classpath'     => '',
+        'description'   => 'Read the AI draft grade waiting for a teacher to review.',
+        'type'          => 'read',
+        'ajax'          => true,
+        'capabilities'  => 'plagiarism/dixeo:mod_assign_grade_submission',
+        'loginrequired' => true,
+    ],
     'plagiarism_dixeo_start_verification' => [
         'classname'     => 'plagiarism_dixeo\external\start_verification',
         'methodname'    => 'execute',

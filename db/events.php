@@ -48,4 +48,8 @@ $observers = [
         'eventname' => '\assignsubmission_file\event\submission_updated',
         'callback' => '\plagiarism_dixeo\observer::submission_updated',
     ],
+    [
+        'eventname' => '\mod_assign\event\submission_graded',
+        'callback' => '\plagiarism_dixeo\observer::submission_graded',
+    ],
 ];

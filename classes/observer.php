@@ -28,9 +28,11 @@ use core\event\base;
 use core\task\manager;
 use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\automation\analysis_gate;
+use plagiarism_dixeo\event\grade_draft_applied;
 use plagiarism_dixeo\feedback\grade_feedback_storage;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
 use plagiarism_dixeo\task\analyze_submission;
+use plagiarism_dixeo\task\stage_draft_grade;
 
 /**
  * Turns assignment submission events into queued analysis work.
@@ -67,13 +69,59 @@ class observer {
      * @param base $event mod_assign assessable_submitted event.
      */
     public static function submission_submitted(base $event): void {
-        self::queue_analysis(
-            (int) $event->contextinstanceid,
-            (int) $event->courseid,
-            (int) $event->userid,
-            (int) $event->objectid,
-            analysis_gate::TRIGGER_SUBMIT
+        $cmid = (int) $event->contextinstanceid;
+        $courseid = (int) $event->courseid;
+        $userid = (int) $event->userid;
+        $submissionid = (int) $event->objectid;
+
+        self::queue_analysis($cmid, $courseid, $userid, $submissionid, analysis_gate::TRIGGER_SUBMIT);
+
+        if (analysis_gate::is_available() && analysis_gate::wants_draft_grade($cmid)) {
+            self::queue(new stage_draft_grade(), $cmid, $courseid, $userid, $submissionid);
+        }
+    }
+
+    /**
+     * A teacher saved a grade, so any proposal they were shown has now been acted on.
+     *
+     * @param base $event mod_assign submission_graded event.
+     */
+    public static function submission_graded(base $event): void {
+        global $DB;
+
+        $userid = (int) $event->relateduserid;
+        $cmid = (int) $event->contextinstanceid;
+        if ($userid <= 0 || $cmid <= 0) {
+            return;
+        }
+
+        $cm = get_coursemodule_from_id('assign', $cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) {
+            return;
+        }
+
+        $submissionid = (int) $DB->get_field(
+            'assign_submission',
+            'id',
+            ['assignment' => (int) $cm->instance, 'userid' => $userid, 'latest' => 1],
+            IGNORE_MULTIPLE
         );
+        if ($submissionid <= 0) {
+            return;
+        }
+
+        $draft = grade_feedback_storage::get_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+        if (!$draft || $draft->status !== grade_feedback_storage::STATUS_DRAFT) {
+            return;
+        }
+
+        grade_feedback_storage::mark_applied($userid, self::COMPONENT, self::AREA, $submissionid);
+
+        grade_draft_applied::create([
+            'context' => \context_module::instance($cmid),
+            'objectid' => (int) $draft->id,
+            'relateduserid' => $userid,
+        ])->trigger();
     }
 
     /**

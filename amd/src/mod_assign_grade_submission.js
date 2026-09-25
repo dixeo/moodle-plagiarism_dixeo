@@ -11,6 +11,7 @@ define(['jquery', 'core/ajax', 'core/notification', 'core/str', 'core/templates'
 function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
 
     var LOADING_MODAL_ID = 'plagiarism_dixeo_loading_modal';
+    var DRAFT_NOTICE_ID = 'plagiarism_dixeo_grade_draft_notice';
 
     /**
      * Hide the loading modal.
@@ -267,6 +268,52 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
     }
 
     /**
+     * Put a banner above the grading form saying the values below were written by AI and
+     * have not been saved.
+     *
+     * @returns {Promise}
+     */
+    function showDraftNotice() {
+        var gradingform = document.querySelector('.gradingform');
+        if (!gradingform || document.getElementById(DRAFT_NOTICE_ID)) {
+            return Promise.resolve();
+        }
+        return Str.get_string('grade_draft_notice', 'plagiarism_dixeo').then(function(message) {
+            var notice = document.createElement('div');
+            notice.id = DRAFT_NOTICE_ID;
+            notice.className = 'alert alert-warning plagiarism-dixeo-grade-draft-notice';
+            notice.setAttribute('role', 'status');
+            notice.textContent = message;
+            gradingform.parentNode.insertBefore(notice, gradingform);
+            return null;
+        });
+    }
+
+    /**
+     * Pre-fill the grading form from a draft grade prepared earlier, if one is waiting.
+     *
+     * @param {number} cmid Course module id.
+     * @param {number} uid Student user id.
+     * @returns {Promise}
+     */
+    function loadDraftGrade(cmid, uid) {
+        return Ajax.call([{
+            methodname: 'plagiarism_dixeo_get_grade_draft',
+            args: {id: cmid, userid: uid}
+        }])[0].then(function(data) {
+            if (!data || !data.hasdraft) {
+                return null;
+            }
+            return showDraftNotice().then(function() {
+                return applyResponse(data);
+            });
+        }).catch(function() {
+            // A missing draft must never stop the teacher from grading by hand.
+            return null;
+        });
+    }
+
+    /**
      * Get a query parameter from the current page URL.
      *
      * @param {string} name Parameter name.
@@ -315,6 +362,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
         }).catch(function() {
             // If strings fail, leave the grader without the Analyze button.
         });
+
+        loadDraftGrade(parseInt(cmid, 10) || 0, parseInt(uid, 10) || 0);
     }
 
     /**
