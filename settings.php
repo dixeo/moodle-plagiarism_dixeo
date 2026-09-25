@@ -41,16 +41,16 @@ if ($mform->is_cancelled()) {
 }
 
 if ($data = $mform->get_data()) {
-    foreach (plagiarism_dixeo_setup_form::get_config_fields() as $field) {
-        if (!isset($data->$field)) {
-            continue;
-        }
-        set_config($field, $data->$field, 'plagiarism_dixeo');
+    // Every field is written, so clearing a checkbox stores 0 rather than leaving the old value.
+    foreach (plagiarism_dixeo_setup_form::get_config_fields() as $field => $default) {
+        set_config($field, $data->$field ?? $default, 'plagiarism_dixeo');
     }
     redirect($PAGE->url, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
-$mform->set_data((array) get_config('plagiarism_dixeo'));
+$mform->set_data(
+    array_merge(plagiarism_dixeo_setup_form::get_config_fields(), (array) get_config('plagiarism_dixeo'))
+);
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('pluginname', 'plagiarism_dixeo'));
