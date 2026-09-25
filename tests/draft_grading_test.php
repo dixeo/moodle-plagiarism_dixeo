@@ -196,7 +196,23 @@ final class draft_grading_test extends \advanced_testcase {
         $this->assertTrue($result['hasdraft']);
         $this->assertSame(grade_feedback_storage::METHOD_SIMPLE, $result['gradingmethod']);
         $this->assertEqualsWithDelta(72.0, $result['grade'], 0.001);
-        $this->assertSame('<p>Good work.</p>', $result['feedback']);
+        $this->assertStringContainsString('Good work.', $result['feedback']);
+    }
+
+    public function test_markup_in_a_draft_is_purified_before_it_reaches_the_grader(): void {
+        $this->store_draft([
+            'analysis' => '<p>Solid<script>alert(1)</script></p>',
+            'feedback' => '<p onclick="alert(2)">Well argued.</p>',
+        ]);
+        $this->setUser($this->teacher);
+
+        $result = get_grade_draft::execute((int) $this->assign->cmid, (int) $this->student->id);
+
+        $this->assertStringNotContainsString('<script', $result['analysis']);
+        $this->assertStringNotContainsString('alert(1)', $result['analysis']);
+        $this->assertStringContainsString('Solid', $result['analysis']);
+        $this->assertStringNotContainsString('onclick', $result['feedback']);
+        $this->assertStringContainsString('Well argued.', $result['feedback']);
     }
 
     public function test_a_teacher_sees_nothing_when_no_draft_was_prepared(): void {
