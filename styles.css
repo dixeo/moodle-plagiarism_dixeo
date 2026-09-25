@@ -114,3 +114,16 @@
 .plagiarism-dixeo-disclosure {
     margin-bottom: 0.5rem;
 }
+
+.plagiarism-dixeo-quiz-countdown {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.plagiarism-dixeo-quiz-body fieldset[disabled] .authorship-question,
+.plagiarism-dixeo-quiz-body input:disabled,
+.plagiarism-dixeo-quiz-body select:disabled,
+.plagiarism-dixeo-quiz-body textarea:disabled {
+    opacity: 0.6;
+}

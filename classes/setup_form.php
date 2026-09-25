@@ -27,6 +27,7 @@ defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/formslib.php');
 
 use plagiarism_dixeo\authorship\authorship;
+use plagiarism_dixeo\authorship\quiz_session;
 
 /**
  * Site settings form.
@@ -42,10 +43,10 @@ class plagiarism_dixeo_setup_form extends moodleform {
     public const TRIGGER_SUBMIT = 'submit';
 
     /** @var int Longest accepted quiz time limit, in seconds. */
-    public const MAX_QUIZ_TIME = 2 * HOURSECS;
+    public const MAX_QUIZ_TIME = quiz_session::MAX_TIME_LIMIT;
 
     /** @var int Longest accepted delay on the next button, in seconds. */
-    public const MAX_NEXT_BUTTON_DELAY = 60;
+    public const MAX_NEXT_BUTTON_DELAY = quiz_session::MAX_NEXT_BUTTON_DELAY;
 
     /**
      * Settings this form owns, mapped to the value stored when the field is absent.

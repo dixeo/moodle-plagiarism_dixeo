@@ -33,6 +33,8 @@ use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_ux_service;
 use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
+use plagiarism_dixeo\authorship\quiz_session;
+use plagiarism_dixeo\event\verification_submitted;
 
 
 /**
@@ -73,7 +75,7 @@ class verify_authorship extends external_api {
             return self::payload(false, 0.0, '', 'failed', 0, '');
         }
 
-        assign_access::require_student_analyze_from_authorship($record);
+        $context = assign_access::require_student_analyze_from_authorship($record);
         $cm = null;
         $courseid = 0;
         try {
@@ -91,16 +93,23 @@ class verify_authorship extends external_api {
             return self::payload(false, 0.0, '', 'failed', 0, response_factory::safe_message($e));
         }
 
-        $decoded = json_decode($params['responses'], true);
-        if (!is_array($decoded)) {
-            $decoded = [];
-        }
+        // Once the clock has run out only the answers already stored count, whatever is sent now.
+        $state = quiz_session::load($record);
+        $expired = quiz_session::is_expired($state);
+        $questionids = quiz_session::get_question_ids($record);
+        $submitted = $expired ? [] : quiz_session::validate_answers(
+            quiz_session::decode_payload($params['responses'], 'responses'),
+            $questionids
+        );
+        $decoded = array_merge(quiz_session::get_answers($record), $submitted);
+        $questions = quiz_session::get_questions($record);
 
-        $quiz = $record->quiz_data ?? [];
-        if (is_string($quiz)) {
-            $quiz = json_decode($quiz, true);
-        }
-        $questions = is_array($quiz) ? ($quiz['questions'] ?? []) : [];
+        verification_submitted::create([
+            'context' => $context,
+            'objectid' => (int) $record->id,
+            'relateduserid' => (int) $record->userid,
+            'other' => ['expired' => $expired],
+        ])->trigger();
 
         try {
             $service = service_factory::get_assign_ux_service($adapter);

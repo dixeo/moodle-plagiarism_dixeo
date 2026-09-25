@@ -7,8 +7,8 @@
  */
 
 define(['jquery', 'core/ajax', 'core/notification', 'core/str', 'core/templates', 'core/loadingicon',
-    'plagiarism_dixeo/assign_job_poller'],
-function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
+    'plagiarism_dixeo/assign_job_poller', 'plagiarism_dixeo/quiz_timer'],
+function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, QuizTimer) {
 
     /**
      * Find the Submit assignment form: form with action mod/assign/view.php and hidden input action=submit.
@@ -424,6 +424,35 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
     }
 
     /**
+     * Start the server-clocked countdown for a quiz, restoring any answers saved earlier.
+     *
+     * @param {number} recordId Authorship record id.
+     * @param {HTMLElement} body Element holding the quiz inputs.
+     * @param {HTMLElement} display Element the countdown is written into.
+     * @param {Function} onExpire Called when the server reports the quiz has closed.
+     * @returns {object|null} The timer, or null when the quiz has no usable record id.
+     */
+    function startQuizTimer(recordId, body, display, onExpire) {
+        if (!recordId || recordId <= 0) {
+            return null;
+        }
+        var Timer = QuizTimer.default || QuizTimer;
+        var timer = new Timer({
+            recordId: recordId,
+            body: body,
+            display: display,
+            collect: function() {
+                return collectQuizResponses(body).responses;
+            },
+            onExpire: onExpire
+        });
+        timer.start().catch(function(err) {
+            Notification.exception(err);
+        });
+        return timer;
+    }
+
+    /**
      * Show the authorship quiz modal: quiz HTML in body, footer with confirmation checkbox, Cancel, Submit.
      * Submit enabled only when all questions answered and checkbox checked. On Submit: verify_authorship then form.submit().
      *
@@ -485,6 +514,10 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             var titleEl = document.createElement('h5');
             titleEl.className = 'modal-title';
             titleEl.textContent = title;
+            var countdown = document.createElement('span');
+            countdown.className = 'plagiarism-dixeo-quiz-countdown ml-auto mr-3';
+            countdown.setAttribute('role', 'timer');
+            countdown.setAttribute('aria-live', 'polite');
             var closeBtn = document.createElement('button');
             closeBtn.type = 'button';
             closeBtn.className = 'close';
@@ -492,6 +525,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             closeBtn.setAttribute('aria-label', closeLabel);
             closeBtn.innerHTML = '<span aria-hidden="true">&times;</span>';
             header.appendChild(titleEl);
+            header.appendChild(countdown);
             header.appendChild(closeBtn);
 
             var body = document.createElement('div');
@@ -562,10 +596,28 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
                     return;
                 }
                 submitBtn.disabled = true;
+                if (timer) {
+                    timer.stop();
+                }
                 verifyAndSubmit(form, $modal, submitBtn, collected);
             });
 
             $modal.modal({backdrop: 'static', keyboard: false});
+
+            var collected = collectQuizResponses(body);
+            var timer = startQuizTimer(collected.recordId, body, countdown, function() {
+                // The server has closed the quiz, so whatever has been answered is submitted as it stands.
+                body.querySelectorAll('input, select, textarea').forEach(function(input) {
+                    input.disabled = true;
+                });
+                submitBtn.disabled = true;
+                verifyAndSubmit(form, $modal, submitBtn, collectQuizResponses(body));
+            });
+            $modal.on('hidden.bs.modal', function() {
+                if (timer) {
+                    timer.stop();
+                }
+            });
             return null;
         }).catch(function(err) {
             Notification.exception(err);
