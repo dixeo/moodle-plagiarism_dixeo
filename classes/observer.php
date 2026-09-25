@@ -1,0 +1,151 @@
+<?php
+// This file is part of Moodle - https://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+
+/**
+ * Event observers for automatic submission analysis.
+ *
+ * @package    plagiarism_dixeo
+ * @copyright  2026 Dixeo (contact@dixeo.com)
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+namespace plagiarism_dixeo;
+
+use core\event\base;
+use core\task\manager;
+use plagiarism_dixeo\authorship\author_storage;
+use plagiarism_dixeo\automation\analysis_gate;
+use plagiarism_dixeo\feedback\grade_feedback_storage;
+use plagiarism_dixeo\feedback\presubmission_feedback_storage;
+use plagiarism_dixeo\task\analyze_submission;
+
+/**
+ * Turns assignment submission events into queued analysis work.
+ *
+ * These handlers run inside the student's request, so they do no more than check the
+ * configuration and put a task on the queue. Everything that talks to the Dixeo API happens
+ * later, in the task, where a slow or failing service cannot hold up a submission.
+ */
+class observer {
+    /** @var string Component the stored analysis belongs to. */
+    private const COMPONENT = 'mod_assign';
+
+    /** @var string Area the stored analysis belongs to. */
+    private const AREA = 'submission';
+
+    /**
+     * A student saved a draft submission.
+     *
+     * @param base $event Submission plugin assessable_uploaded event.
+     */
+    public static function submission_uploaded(base $event): void {
+        self::queue_analysis(
+            (int) $event->contextinstanceid,
+            (int) $event->courseid,
+            (int) $event->userid,
+            (int) $event->objectid,
+            analysis_gate::TRIGGER_UPLOAD
+        );
+    }
+
+    /**
+     * A student submitted their work for grading.
+     *
+     * @param base $event mod_assign assessable_submitted event.
+     */
+    public static function submission_submitted(base $event): void {
+        self::queue_analysis(
+            (int) $event->contextinstanceid,
+            (int) $event->courseid,
+            (int) $event->userid,
+            (int) $event->objectid,
+            analysis_gate::TRIGGER_SUBMIT
+        );
+    }
+
+    /**
+     * A submission changed, so anything Dixeo concluded about the previous version is stale.
+     *
+     * @param base $event Submission plugin submission_updated event.
+     */
+    public static function submission_updated(base $event): void {
+        $submissionid = (int) ($event->other['submissionid'] ?? 0);
+        $userid = (int) ($event->relateduserid ?: $event->userid);
+        if ($submissionid <= 0 || $userid <= 0) {
+            return;
+        }
+
+        author_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+        presubmission_feedback_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+        grade_feedback_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+    }
+
+    /**
+     * Queue an analysis run if every switch allows it.
+     *
+     * @param int $cmid Assignment course module id.
+     * @param int $courseid Course id.
+     * @param int $userid Student user id.
+     * @param int $submissionid Assign submission id.
+     * @param string $trigger The trigger that fired.
+     */
+    private static function queue_analysis(
+        int $cmid,
+        int $courseid,
+        int $userid,
+        int $submissionid,
+        string $trigger
+    ): void {
+        if (!analysis_gate::should_analyse($cmid, $trigger)) {
+            return;
+        }
+
+        self::queue(new analyze_submission(), $cmid, $courseid, $userid, $submissionid);
+    }
+
+    /**
+     * Put a task on the adhoc queue on the student's behalf.
+     *
+     * @param \core\task\adhoc_task $task Task to queue.
+     * @param int $cmid Assignment course module id.
+     * @param int $courseid Course id.
+     * @param int $userid Student user id.
+     * @param int $submissionid Assign submission id.
+     */
+    private static function queue(
+        \core\task\adhoc_task $task,
+        int $cmid,
+        int $courseid,
+        int $userid,
+        int $submissionid
+    ): void {
+        if ($cmid <= 0 || $courseid <= 0 || $userid <= 0 || $submissionid <= 0) {
+            return;
+        }
+
+        $task->set_component('plagiarism_dixeo');
+        $task->set_userid($userid);
+        $task->set_custom_data([
+            'cmid' => $cmid,
+            'courseid' => $courseid,
+            'userid' => $userid,
+            'submissionid' => $submissionid,
+        ]);
+
+        // Saving a draft fires one event per submission plugin, so identical work is queued once.
+        manager::queue_adhoc_task($task, true);
+    }
+}
