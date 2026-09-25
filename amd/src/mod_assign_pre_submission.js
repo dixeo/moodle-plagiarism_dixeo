@@ -41,9 +41,13 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
     var LOADING_MODAL_ID = 'plagiarism_dixeo_loading_modal';
     var QUIZ_MODAL_ID = 'plagiarism_dixeo_authorship_quiz_modal';
     var RESPONSE_CONTAINER_ID = 'plagiarism_dixeo_submission_response';
+    var OPEN_QUIZ_SELECTOR = '.plagiarism-dixeo-open-verification-modal';
 
     /** Whether the form has already passed authorship check (submit allowed without re-check). */
     var submissionAuthorized = false;
+
+    /** Whether the in-progress panel click listener has been bound. */
+    var panelResumeBound = false;
 
     /**
      * Remove any previous analysis response so the next one is shown alone.
@@ -56,18 +60,32 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
     }
 
     /**
-     * Hide the loading modal.
+     * Hide the loading modal, including when Bootstrap's hide event does not fire.
      */
     function hideLoadingModal() {
         var el = document.getElementById(LOADING_MODAL_ID);
         if (el) {
-            $(el).modal('hide');
+            try {
+                $(el).modal('hide');
+            } catch (ignore) {
+                // Hard-hide below.
+            }
+            el.classList.remove('show');
+            el.style.display = 'none';
+            el.setAttribute('aria-hidden', 'true');
         }
+        document.querySelectorAll('.modal-backdrop').forEach(function(backdrop) {
+            if (backdrop.parentNode) {
+                backdrop.parentNode.removeChild(backdrop);
+            }
+        });
+        document.body.classList.remove('modal-open');
+        document.body.style.removeProperty('padding-right');
     }
 
     /**
      * Show the loading modal (spinner + message). Creates once and reuses; updates message when reused. Locked.
-     * Resolves after the modal has finished showing.
+     * Resolves after the modal has finished showing, or immediately when it is already visible.
      *
      * @param {string} message Text to show below the spinner (e.g. "Analyzing...", "Verifying...").
      * @returns {Promise<jQuery>}
@@ -80,11 +98,21 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 textEl.textContent = message;
             }
             var $existing = $(existing);
+            if (existing.classList.contains('show')) {
+                return Promise.resolve($existing);
+            }
             return new Promise(function(resolve) {
-                $existing.one('shown.bs.modal', function() {
+                var settled = false;
+                var done = function() {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
                     resolve($existing);
-                });
+                };
+                $existing.one('shown.bs.modal', done);
                 $existing.modal('show');
+                setTimeout(done, 50);
             });
         }
         return Templates.render('plagiarism_dixeo/loading_modal', {message: message}).then(function(html, js) {
@@ -157,6 +185,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             attachAnalyzeHandler(analyzeButton, parseInt(cmid, 10));
             if (form) {
                 attachSubmitHandler(form, cmid);
+                attachPanelResumeHandler(form, cmid);
             }
             return null;
         }).catch(function() {
@@ -236,6 +265,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 }
                 return AssignJobPoller.poll(data.jobid, data.courseid, cmid, 'review');
             }).then(function(data) {
+                analyzeButton.disabled = false;
+                hideLoadingModal();
                 if (!data) {
                     return null;
                 }
@@ -247,14 +278,58 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 }
                 return renderAnalysisHtml(data.html || '');
             }).catch(function(err) {
-                Notification.exception(err);
-            }).then(function() {
                 analyzeButton.disabled = false;
                 hideLoadingModal();
-                return null;
-            }).catch(function() {
-                // Ignore cleanup errors.
+                Notification.exception(err);
             });
+        });
+    }
+
+    /**
+     * Run check_authorship and open the quiz, or submit the assignment when no quiz is required.
+     *
+     * When a quiz is already under way, the server returns that same record instead of starting
+     * a new check, so Submit and the in-progress panel both resume the clock and the answers.
+     *
+     * @param {HTMLFormElement} form Assign form to submit after verification.
+     * @param {string} cmid Course module ID from URL.
+     * @param {boolean} submitIfNoQuiz When true and no quiz is required, submit the form.
+     * @returns {Promise}
+     */
+    function requestAuthorshipCheck(form, cmid, submitIfNoQuiz) {
+        return Str.get_string('authorship_verifying', 'plagiarism_dixeo').then(function(verifyingMsg) {
+            return showLoadingModal(verifyingMsg);
+        }).then(function() {
+            return Ajax.call([{
+                methodname: 'plagiarism_dixeo_check_authorship',
+                args: {
+                    component: 'mod_assign',
+                    area: 'submission',
+                    id: parseInt(cmid, 10) || 0
+                }
+            }])[0];
+        }).then(function(data) {
+            hideLoadingModal();
+            if (data && data.status === 'failed' && data.errormessage) {
+                Notification.addNotification({
+                    message: data.errormessage,
+                    type: 'error'
+                });
+                return null;
+            }
+            var recordId = (data && data.record_id) ? parseInt(data.record_id, 10) : 0;
+            if (recordId === 0) {
+                if (submitIfNoQuiz) {
+                    submissionAuthorized = true;
+                    form.submit();
+                }
+                return null;
+            }
+            showQuizModal(form, (data.quiz_html || ''));
+            return null;
+        }).catch(function(err) {
+            hideLoadingModal();
+            Notification.exception(err);
         });
     }
 
@@ -270,41 +345,33 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 return;
             }
             e.preventDefault();
+            requestAuthorshipCheck(form, cmid, true);
+        });
+    }
 
-            var formId = cmid;
+    /**
+     * Open the existing quiz from the "Verification in progress" / "Verification required" panel.
+     *
+     * @param {HTMLFormElement} form Assign form to submit after verification.
+     * @param {string} cmid Course module ID from URL.
+     */
+    function attachPanelResumeHandler(form, cmid) {
+        if (panelResumeBound) {
+            return;
+        }
+        panelResumeBound = true;
 
-            Str.get_string('authorship_verifying', 'plagiarism_dixeo').then(function(verifyingMsg) {
-                return showLoadingModal(verifyingMsg);
-            }).then(function() {
-                return Ajax.call([{
-                    methodname: 'plagiarism_dixeo_check_authorship',
-                    args: {
-                        component: 'mod_assign',
-                        area: 'submission',
-                        id: parseInt(formId, 10) || 0
-                    }
-                }])[0];
-            }).then(function(data) {
-                hideLoadingModal();
-                if (data && data.status === 'failed' && data.errormessage) {
-                    Notification.addNotification({
-                        message: data.errormessage,
-                        type: 'error'
-                    });
-                    return null;
-                }
-                var recordId = (data && data.record_id) ? parseInt(data.record_id, 10) : 0;
-                if (recordId === 0) {
-                    submissionAuthorized = true;
-                    form.submit();
-                    return null;
-                }
-                showQuizModal(form, (data.quiz_html || ''));
-                return null;
-            }).catch(function(err) {
-                hideLoadingModal();
-                Notification.exception(err);
-            });
+        document.addEventListener('click', function(e) {
+            var link = e.target.closest(OPEN_QUIZ_SELECTOR);
+            if (!link) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            if (document.getElementById(QUIZ_MODAL_ID)) {
+                return;
+            }
+            requestAuthorshipCheck(form, cmid, false);
         });
     }
 

@@ -90,6 +90,18 @@ class check_authorship extends external_api {
             $submissiondata = $reader->get_submission_data((int) $cm->id, (int) $USER->id, $courseid);
             $itemid = isset($submissiondata['submission']->id) ? (int) $submissiondata['submission']->id : 0;
 
+            $existing = authorship::find_resumable_record((int) $USER->id, $itemid);
+            if ($existing) {
+                return self::result_payload(
+                    (float) ($existing->initial_confidence ?? 50.0),
+                    (int) $existing->id,
+                    authorship::render_quiz_form($existing),
+                    '',
+                    'completed',
+                    $courseid
+                );
+            }
+
             $confidenceop = $service->submit_authorship_and_wait(
                 $courseid,
                 (int) $cm->id,

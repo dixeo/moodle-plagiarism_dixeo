@@ -12,20 +12,47 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
 
     var LOADING_MODAL_ID = 'plagiarism_dixeo_loading_modal';
     var DRAFT_NOTICE_ID = 'plagiarism_dixeo_grade_draft_notice';
+    var ANALYZE_BUTTON_ID = 'plagiarism_dixeo_grade_analyze_btn';
+
+    /** How long to keep watching for Moodle to finish building the grader form. */
+    var FORM_WATCH_MS = 15000;
+
+    /** Whether the grader watcher has been started. */
+    var watching = false;
+
+    /** In-flight draft request, so a form rebuild does not stack calls. */
+    var draftRequest = null;
+
+    /** Last form identity a draft was applied to. */
+    var draftAppliedKey = '';
 
     /**
-     * Hide the loading modal.
+     * Hide the loading modal, including when Bootstrap's hide event does not fire.
      */
     function hideLoadingModal() {
         var el = document.getElementById(LOADING_MODAL_ID);
         if (el) {
-            $(el).modal('hide');
+            try {
+                $(el).modal('hide');
+            } catch (ignore) {
+                // Hard-hide below.
+            }
+            el.classList.remove('show');
+            el.style.display = 'none';
+            el.setAttribute('aria-hidden', 'true');
         }
+        document.querySelectorAll('.modal-backdrop').forEach(function(backdrop) {
+            if (backdrop.parentNode) {
+                backdrop.parentNode.removeChild(backdrop);
+            }
+        });
+        document.body.classList.remove('modal-open');
+        document.body.style.removeProperty('padding-right');
     }
 
     /**
      * Show the loading modal (spinner + message). Creates once and reuses; updates message when reused. Locked.
-     * Resolves after the modal has finished showing.
+     * Resolves after the modal has finished showing, or immediately when it is already visible.
      *
      * @param {string} message Text to show below the spinner (e.g. "Analyzing...").
      * @returns {Promise<jQuery>}
@@ -38,11 +65,21 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
                 textEl.textContent = message;
             }
             var $existing = $(existing);
+            if (existing.classList.contains('show')) {
+                return Promise.resolve($existing);
+            }
             return new Promise(function(resolve) {
-                $existing.one('shown.bs.modal', function() {
+                var settled = false;
+                var done = function() {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
                     resolve($existing);
-                });
+                };
+                $existing.one('shown.bs.modal', done);
                 $existing.modal('show');
+                setTimeout(done, 50);
             });
         }
         return Templates.render('plagiarism_dixeo/loading_modal', {message: message}).then(function(html, js) {
@@ -328,26 +365,56 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
     }
 
     /**
-     * Find the "Save changes" submit button and add an "Analyze" button before it.
-     * On Analyze click: show analyzing modal (locked), call web service (id/userid from URL), inject response, hide modal.
+     * Identity of the current grading form, so a Moodle rebuild can be distinguished from a no-op.
+     *
+     * @returns {string}
      */
-    function run() {
-        var cmid = getUrlParam('id').trim();
-        var uid = getUrlParam('userid').trim();
-        if (!cmid || !uid) {
+    function gradingFormKey() {
+        var form = document.querySelector('.gradingform');
+        if (!form) {
+            return '';
+        }
+        return (form.id || 'gradingform') + ':' + form.querySelectorAll('input, textarea, select').length;
+    }
+
+    /**
+     * Whether the grading form has the fields a draft can be written into.
+     *
+     * @returns {boolean}
+     */
+    function gradingFormReady() {
+        var form = document.querySelector('.gradingform');
+        if (!form) {
+            return false;
+        }
+        return !!(document.getElementById('id_grade')
+            || form.querySelector('[name^="advancedgrading"]')
+            || document.getElementById('fitem_id_assignfeedbackcomments_editor'));
+    }
+
+    /**
+     * Insert the Analyze button once, next to Save changes.
+     *
+     * @param {string} cmid Course module id.
+     * @param {string} uid Student user id.
+     */
+    function ensureAnalyzeButton(cmid, uid) {
+        if (document.getElementById(ANALYZE_BUTTON_ID)) {
             return;
         }
-
         var saveButton = document.querySelector('form[data-region="grading-actions-form"] button[name="savechanges"]');
         if (!saveButton) {
             return;
         }
 
         Str.get_string('analyze', 'plagiarism_dixeo').then(function(analyzeLabel) {
+            if (document.getElementById(ANALYZE_BUTTON_ID)) {
+                return null;
+            }
             var analyzeButton = document.createElement('button');
             analyzeButton.type = 'button';
             analyzeButton.className = 'btn btn-primary mr-1';
-            analyzeButton.id = 'plagiarism_dixeo_grade_analyze_btn';
+            analyzeButton.id = ANALYZE_BUTTON_ID;
 
             var img = document.createElement('img');
             img.src = (typeof M !== 'undefined' && M.cfg && M.cfg.wwwroot)
@@ -365,8 +432,63 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
         }).catch(function() {
             // If strings fail, leave the grader without the Analyze button.
         });
+    }
 
-        loadDraftGrade(parseInt(cmid, 10) || 0, parseInt(uid, 10) || 0);
+    /**
+     * Apply a waiting draft once the grading form Moodle builds asynchronously is in place.
+     *
+     * The assign grader paints Save changes first, then replaces `.gradingform`. Applying
+     * too early is a no-op; applying to a form that is then discarded loses the notice.
+     *
+     * @param {string} cmid Course module id.
+     * @param {string} uid Student user id.
+     */
+    function tryApplyDraft(cmid, uid) {
+        if (!gradingFormReady() || draftRequest) {
+            return;
+        }
+        var key = gradingFormKey();
+        if (!key || draftAppliedKey === key) {
+            return;
+        }
+        if (document.getElementById(DRAFT_NOTICE_ID)) {
+            draftAppliedKey = key;
+            return;
+        }
+        draftAppliedKey = key;
+        draftRequest = loadDraftGrade(parseInt(cmid, 10) || 0, parseInt(uid, 10) || 0).then(function() {
+            draftRequest = null;
+            return null;
+        });
+    }
+
+    /**
+     * Find the "Save changes" submit button and add an "Analyze" button before it.
+     * On Analyze click: show analyzing modal (locked), call web service (id/userid from URL), inject response, hide modal.
+     */
+    function run() {
+        var cmid = getUrlParam('id').trim();
+        var uid = getUrlParam('userid').trim();
+        if (!cmid || !uid) {
+            return;
+        }
+
+        ensureAnalyzeButton(cmid, uid);
+        tryApplyDraft(cmid, uid);
+
+        if (watching) {
+            return;
+        }
+        watching = true;
+
+        var observer = new MutationObserver(function() {
+            ensureAnalyzeButton(cmid, uid);
+            tryApplyDraft(cmid, uid);
+        });
+        observer.observe(document.body, {childList: true, subtree: true});
+        setTimeout(function() {
+            observer.disconnect();
+        }, FORM_WATCH_MS);
     }
 
     /**
@@ -404,6 +526,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
                 }
                 return AssignJobPoller.poll(data.jobid, data.courseid, cmidInt, 'grade');
             }).then(function(data) {
+                analyzeButton.disabled = false;
+                hideLoadingModal();
                 if (!data) {
                     return null;
                 }
@@ -415,13 +539,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
                 }
                 return applyResponse(data);
             }).catch(function(err) {
-                Notification.exception(err);
-            }).then(function() {
                 analyzeButton.disabled = false;
                 hideLoadingModal();
-                return null;
-            }).catch(function() {
-                // Ignore cleanup errors.
+                Notification.exception(err);
             });
         });
     }

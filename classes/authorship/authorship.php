@@ -120,6 +120,47 @@ class authorship {
     }
 
     /**
+     * Whether an authorship record still has a quiz the student can sit or resume.
+     *
+     * @param \stdClass|null $record Authorship record, or null when none exists.
+     * @return bool
+     */
+    public static function is_resumable_record(?\stdClass $record): bool {
+        if ($record === null) {
+            return false;
+        }
+
+        $open = [
+            author_storage::STATUS_VERIFICATION_REQUIRED,
+            author_storage::STATUS_VERIFICATION_IN_PROGRESS,
+        ];
+        if (!in_array($record->status, $open, true)) {
+            return false;
+        }
+
+        $questions = quiz_session::get_questions($record);
+
+        return $questions !== [];
+    }
+
+    /**
+     * Load the open quiz for a submission, if the student still has one to sit.
+     *
+     * @param int $userid Student user id.
+     * @param int $itemid Assign submission id.
+     * @return \stdClass|null Authorship record, or null when a new check is required.
+     */
+    public static function find_resumable_record(int $userid, int $itemid): ?\stdClass {
+        if ($userid <= 0 || $itemid <= 0) {
+            return null;
+        }
+
+        $record = author_storage::get_record_by_context($userid, 'mod_assign', 'submission', $itemid);
+
+        return self::is_resumable_record($record) ? $record : null;
+    }
+
+    /**
      * Render the quiz as an HTML form.
      *
      * @param object|array $recordorquizdata DB record (with quiz_data) or decoded quiz array.

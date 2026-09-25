@@ -291,6 +291,60 @@ final class automation_test extends \advanced_testcase {
         ));
     }
 
+    public function test_a_finished_quiz_is_not_replaced_when_analysis_runs_again(): void {
+        $created = author_storage::create_record(
+            (int) $this->student->id,
+            'mod_assign',
+            'submission',
+            $this->submissionid,
+            [
+                'initial_confidence' => 20.0,
+                'quiz_data' => ['questions' => [['id' => 'q0', 'type' => 'true_false', 'text' => 'One?']]],
+            ]
+        );
+        $this->assertNotNull($created);
+        author_storage::update_record((int) $created->id, [
+            'status' => author_storage::STATUS_COMPLETE,
+            'final_confidence' => 15.0,
+            'quiz_grade' => 33.33,
+        ]);
+
+        $service = $this->getMockBuilder(\local_dixeo\service\assign_ux_service::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $service->expects($this->never())->method('submit_authorship_and_wait');
+
+        $task = new analyze_submission();
+        $method = new \ReflectionMethod(analyze_submission::class, 'store_authorship');
+        $method->setAccessible(true);
+        ob_start();
+        $method->invoke(
+            $task,
+            $service,
+            \context_module::instance((int) $this->assign->cmid),
+            (object) [
+                'id' => $this->submissionid,
+                'timemodified' => time(),
+                'attemptnumber' => 0,
+            ],
+            (int) $this->course->id,
+            (int) $this->assign->cmid,
+            (int) $this->student->id
+        );
+        ob_end_clean();
+
+        $stored = author_storage::get_record_by_context(
+            (int) $this->student->id,
+            'mod_assign',
+            'submission',
+            $this->submissionid
+        );
+        $this->assertNotNull($stored);
+        $this->assertSame((int) $created->id, (int) $stored->id);
+        $this->assertSame(author_storage::STATUS_COMPLETE, $stored->status);
+        $this->assertEqualsWithDelta(15.0, (float) $stored->final_confidence, 0.01);
+    }
+
     public function test_the_task_does_nothing_when_the_submission_has_been_deleted(): void {
         global $DB;
 
