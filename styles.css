@@ -18,3 +18,99 @@
 .authorship-options label {
     display: block;
 }
+
+/* Score and status panels shown beside a submission. */
+.plagiarism-dixeo-panels .plagiarism-dixeo-panel {
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+
+.plagiarism-dixeo-panels .plagiarism-dixeo-panel:last-child {
+    margin-bottom: 0;
+}
+
+.plagiarism-dixeo-panel .card-header {
+    font-weight: bold;
+    padding: 0.25rem 0.75rem;
+}
+
+.plagiarism-dixeo-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.plagiarism-dixeo-panel-header[role="button"] {
+    cursor: pointer;
+}
+
+.plagiarism-dixeo-panel-header-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.plagiarism-dixeo-panel .plagiarism-dixeo-panel-maximize {
+    flex-shrink: 0;
+    opacity: 0.9;
+}
+
+.plagiarism-dixeo-panel .plagiarism-dixeo-panel-maximize:hover {
+    opacity: 1;
+}
+
+.plagiarism-dixeo-panel .card-body {
+    padding: 0.5rem 0.75rem;
+}
+
+.plagiarism-dixeo-quiz-feedback-list {
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
+}
+
+/* Enlarged copy of a panel, shown over the page. */
+.plagiarism-dixeo-panel-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1055;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.plagiarism-dixeo-panel-overlay-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.plagiarism-dixeo-panel-overlay-card {
+    position: relative;
+    z-index: 1;
+    max-width: 42rem;
+    width: 100%;
+    max-height: calc(100vh - 2rem);
+    overflow: auto;
+    background: #fff;
+    border-radius: 0.3rem;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.plagiarism-dixeo-panel-overlay-card .card-header {
+    border-radius: 0.3rem 0.3rem 0 0;
+}
+
+.plagiarism-dixeo-panel-overlay-card .plagiarism-dixeo-panel-minimize {
+    flex-shrink: 0;
+}
+
+.btn.plagiarism-dixeo-panel-maximize:focus,
+.btn.plagiarism-dixeo-panel-minimize:focus {
+    box-shadow: none;
+}
+
+.plagiarism-dixeo-disclosure {
+    margin-bottom: 0.5rem;
+}

@@ -47,12 +47,12 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     public const VISIBILITY_SCOREANDFEEDBACK = 'scoreandfeedback';
 
     /**
-     * Request-scoped cache of activity settings, keyed by course module id.
+     * Request-scoped store for activity settings and render state.
      *
      * @return \cache_application|\cache_session|\cache_store
      */
-    private static function get_config_cache() {
-        return \cache::make_from_params(\cache_store::MODE_REQUEST, 'plagiarism_dixeo', 'activityconfig');
+    private static function get_request_cache() {
+        return \cache::make_from_params(\cache_store::MODE_REQUEST, 'plagiarism_dixeo', 'activity');
     }
 
     /**
@@ -102,8 +102,9 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             return [];
         }
 
-        $cache = self::get_config_cache();
-        $config = $cache->get($cmid);
+        $cache = self::get_request_cache();
+        $cachekey = 'config_' . $cmid;
+        $config = $cache->get($cachekey);
         if (is_array($config)) {
             return $config;
         }
@@ -115,7 +116,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             $value = isset($stored[$name]) ? (string) $stored[$name] : $spec['default'];
             $config[$name] = in_array($value, $spec['values'], true) ? $value : $spec['default'];
         }
-        $cache->set($cmid, $config);
+        $cache->set($cachekey, $config);
 
         return $config;
     }
@@ -161,7 +162,345 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             }
         }
 
-        self::get_config_cache()->delete($cmid);
+        self::get_request_cache()->delete('config_' . $cmid);
+    }
+
+    /**
+     * Panels shown beside a submission in the activity and grader views.
+     *
+     * Returns nothing unless the viewer is the student the submission belongs to or holds
+     * mod/assign:grade on the activity: a score is a judgement about a named person.
+     *
+     * @param array $linkarray Core supplies at least cmid and userid.
+     * @return string HTML fragment, or an empty string when there is nothing to show.
+     */
+    public function get_links($linkarray) {
+        global $PAGE, $USER;
+
+        $cmid = (int) ($linkarray['cmid'] ?? 0);
+        $userid = (int) ($linkarray['userid'] ?? 0);
+        if ($cmid <= 0 || $userid <= 0 || !self::is_enabled_for_activity($cmid)) {
+            return '';
+        }
+
+        $cm = get_coursemodule_from_id('assign', $cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) {
+            return '';
+        }
+        $context = context_module::instance($cm->id);
+
+        $isteacher = has_capability('mod/assign:grade', $context);
+        if ($userid !== (int) $USER->id && !$isteacher) {
+            return '';
+        }
+        if ($userid === (int) $USER->id && !$isteacher && !is_enrolled($context, $userid)) {
+            return '';
+        }
+
+        $itemid = (int) ($linkarray['submissionid'] ?? 0);
+        if ($itemid <= 0) {
+            $itemid = self::get_latest_submission_id((int) $cm->instance, $userid);
+        }
+        if ($itemid <= 0) {
+            return '';
+        }
+
+        // A submission with several files calls this once per file; show the panels once.
+        $rendered = self::get_request_cache();
+        $renderkey = 'rendered_' . $cmid . '_' . $userid;
+        if ($rendered->get($renderkey)) {
+            return '';
+        }
+
+        $record = \plagiarism_dixeo\authorship\author_storage::get_record_by_context(
+            $userid,
+            'mod_assign',
+            'submission',
+            $itemid
+        );
+        if ($record === null) {
+            return '';
+        }
+
+        $html = self::get_links_badges_html($record, $context, self::get_activity_config($cmid), $isteacher);
+        if ($html === '') {
+            return '';
+        }
+
+        $rendered->set($renderkey, true);
+        $PAGE->requires->js_call_amd('plagiarism_dixeo/panel', 'init', []);
+
+        return $html;
+    }
+
+    /**
+     * Notify students that their submission will be analysed.
+     *
+     * @param int $cmid Course module id.
+     * @return string HTML fragment, or an empty string when nothing is configured.
+     */
+    public function print_disclosure($cmid) {
+        if (!self::is_enabled_for_activity((int) $cmid)) {
+            return '';
+        }
+
+        $disclosure = (string) get_config('plagiarism_dixeo', 'student_disclosure');
+        if (trim($disclosure) === '') {
+            return '';
+        }
+
+        $context = context_module::instance((int) $cmid);
+
+        return html_writer::div(
+            format_text($disclosure, FORMAT_MOODLE, ['context' => $context]),
+            'plagiarism-dixeo-disclosure'
+        );
+    }
+
+    /**
+     * Render the panels describing one authorship record.
+     *
+     * @param stdClass $record Authorship record.
+     * @param context_module $context Activity the submission belongs to.
+     * @param array $config Activity settings.
+     * @param bool $isteacher Whether the viewer may grade, and so sees everything.
+     * @return string HTML fragment, or an empty string when every panel is hidden.
+     */
+    protected static function get_links_badges_html(
+        stdClass $record,
+        context_module $context,
+        array $config,
+        bool $isteacher
+    ): string {
+        $storage = \plagiarism_dixeo\authorship\author_storage::class;
+        $cmid = (int) $context->instanceid;
+
+        $waiting = [
+            $storage::STATUS_PENDING => ['status_pending_badge', 'bg-warning text-dark', false],
+            $storage::STATUS_FAILED => ['status_failed_badge', 'bg-danger text-white', false],
+            $storage::STATUS_VERIFICATION_REQUIRED => ['verification_required_badge', 'bg-warning text-dark', true],
+            $storage::STATUS_VERIFICATION_IN_PROGRESS => ['verification_in_progress_badge', 'bg-info text-white', true],
+        ];
+
+        if (isset($waiting[$record->status])) {
+            [$stringkey, $headerclass, $islink] = $waiting[$record->status];
+            $panel = self::build_panel_data(get_string($stringkey, 'plagiarism_dixeo'), $headerclass);
+            // Only the student sitting the test can open it.
+            if ($islink && !$isteacher) {
+                $panel['haslink'] = true;
+                $panel['recordid'] = (int) $record->id;
+                $panel['cmid'] = $cmid;
+            }
+
+            return self::render_panels($cmid, [$panel]);
+        }
+
+        if ($record->status !== $storage::STATUS_COMPLETE) {
+            return '';
+        }
+
+        // Teachers see every score together with the reasoning behind it.
+        $visibility = $isteacher
+            ? array_fill_keys(['initial', 'test', 'final'], self::VISIBILITY_SCOREANDFEEDBACK)
+            : [
+                'initial' => $config['show_initial_score'],
+                'test' => $config['show_test_score'],
+                'final' => $config['show_final_score'],
+            ];
+
+        $hasquiz = $record->quiz_grade !== null;
+        $panels = [];
+
+        if ($hasquiz && $visibility['initial'] !== self::VISIBILITY_HIDE && $record->initial_confidence !== null) {
+            $panels[] = self::build_score_panel(
+                'display_initial_score',
+                (float) $record->initial_confidence,
+                'bg-info text-white',
+                $visibility['initial'] === self::VISIBILITY_SCOREANDFEEDBACK
+                    ? self::format_explanation($record->initial_explanation, $context)
+                    : ''
+            );
+        }
+
+        if ($hasquiz && $visibility['test'] !== self::VISIBILITY_HIDE) {
+            $panels[] = self::build_score_panel(
+                'display_test_score',
+                (float) $record->quiz_grade,
+                'bg-primary text-white',
+                $visibility['test'] === self::VISIBILITY_SCOREANDFEEDBACK
+                    ? self::format_quiz_feedback($record, $context)
+                    : ''
+            );
+        }
+
+        if ($visibility['final'] !== self::VISIBILITY_HIDE && $record->final_confidence !== null) {
+            $panels[] = self::build_score_panel(
+                'display_final_score',
+                (float) $record->final_confidence,
+                'bg-success text-white',
+                $visibility['final'] === self::VISIBILITY_SCOREANDFEEDBACK
+                    ? self::format_explanation($record->final_explanation, $context)
+                    : ''
+            );
+        }
+
+        if (!$panels) {
+            return '';
+        }
+
+        // Panels are only collapsible when there is more than one to choose between.
+        if (count($panels) > 1) {
+            foreach ($panels as $index => $panel) {
+                if ($panel['hasbody']) {
+                    $panels[$index]['collapsible'] = true;
+                    $panels[$index]['collapseid'] = 'plagiarism-dixeo-collapse-' . (int) $record->id . '-' . $index;
+                }
+            }
+        }
+
+        return self::render_panels($cmid, $panels);
+    }
+
+    /**
+     * Render a set of panels through the template.
+     *
+     * @param int $cmid Course module id, used to make the container id unique on the page.
+     * @param array $panels Panel data from build_panel_data().
+     * @return string HTML fragment.
+     */
+    protected static function render_panels(int $cmid, array $panels): string {
+        global $OUTPUT;
+
+        return $OUTPUT->render_from_template('plagiarism_dixeo/panels', [
+            'containerid' => 'plagiarism-dixeo-panels-' . $cmid,
+            'panels' => array_values($panels),
+        ]);
+    }
+
+    /**
+     * Build a panel showing one score.
+     *
+     * @param string $stringkey Language string naming the score, taking the value as {$a}.
+     * @param float $score Score to show, 0–100.
+     * @param string $headerclass Bootstrap classes for the header.
+     * @param string $body Body HTML, already passed through format_text(); empty for no body.
+     * @return array Panel data.
+     */
+    protected static function build_score_panel(
+        string $stringkey,
+        float $score,
+        string $headerclass,
+        string $body
+    ): array {
+        return self::build_panel_data(
+            get_string($stringkey, 'plagiarism_dixeo', round($score, 1)),
+            $headerclass,
+            $body
+        );
+    }
+
+    /**
+     * Build the template data for one panel.
+     *
+     * The title is plain text and is escaped by the template. The body is the only field
+     * rendered as HTML, so callers must pass it through format_text() first.
+     *
+     * @param string $title Header text.
+     * @param string $headerclass Bootstrap classes for the header.
+     * @param string $body Body HTML, already passed through format_text(); empty for no body.
+     * @return array Panel data.
+     */
+    protected static function build_panel_data(string $title, string $headerclass, string $body = ''): array {
+        $hasbody = trim($body) !== '';
+
+        return [
+            'title' => $title,
+            'headerclass' => $headerclass,
+            'haslink' => false,
+            'recordid' => 0,
+            'cmid' => 0,
+            'hasbody' => $hasbody,
+            'body' => $body,
+            'collapsible' => false,
+            'collapseid' => '',
+            'maximizelabel' => $hasbody ? get_string('panel_maximize', 'plagiarism_dixeo') : '',
+        ];
+    }
+
+    /**
+     * Prepare a model-written explanation for display.
+     *
+     * Explanations are prose, so they are rendered as plain text: this escapes any markup
+     * the model produced rather than trusting it.
+     *
+     * @param string|null $explanation Stored explanation.
+     * @param context_module $context Activity the text belongs to.
+     * @return string Safe HTML, or an empty string when there is nothing to show.
+     */
+    protected static function format_explanation(?string $explanation, context_module $context): string {
+        $explanation = trim((string) $explanation);
+        if ($explanation === '') {
+            return '';
+        }
+
+        return format_text($explanation, FORMAT_PLAIN, ['context' => $context]);
+    }
+
+    /**
+     * Prepare the verification quiz conclusion and per-question notes for display.
+     *
+     * @param stdClass $record Authorship record.
+     * @param context_module $context Activity the text belongs to.
+     * @return string Safe HTML, or an empty string when there is nothing to show.
+     */
+    protected static function format_quiz_feedback(stdClass $record, context_module $context): string {
+        $parts = [];
+
+        $conclusion = self::format_explanation($record->quiz_explanation ?? null, $context);
+        if ($conclusion !== '') {
+            $parts[] = html_writer::div($conclusion, 'plagiarism-dixeo-quiz-conclusion');
+        }
+
+        $feedbacks = json_decode((string) ($record->quiz_question_feedbacks ?? ''), true);
+        if (is_array($feedbacks)) {
+            $items = [];
+            foreach ($feedbacks as $feedback) {
+                if (!is_scalar($feedback)) {
+                    continue;
+                }
+                $line = self::format_explanation((string) $feedback, $context);
+                if ($line !== '') {
+                    $items[] = html_writer::tag('li', $line);
+                }
+            }
+            if ($items) {
+                $parts[] = html_writer::tag('ul', implode('', $items), [
+                    'class' => 'plagiarism-dixeo-quiz-feedback-list',
+                ]);
+            }
+        }
+
+        return implode('', $parts);
+    }
+
+    /**
+     * Find the submission a student's analysis is attached to.
+     *
+     * @param int $assignid Assignment instance id.
+     * @param int $userid Student user id.
+     * @return int Submission id, or 0 when the student has not submitted.
+     */
+    protected static function get_latest_submission_id(int $assignid, int $userid): int {
+        global $DB;
+
+        $submission = $DB->get_record(
+            'assign_submission',
+            ['assignment' => $assignid, 'userid' => $userid, 'latest' => 1],
+            'id',
+            IGNORE_MULTIPLE
+        );
+
+        return $submission ? (int) $submission->id : 0;
     }
 
     /**
