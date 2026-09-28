@@ -30,13 +30,14 @@ use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 use plagiarism_dixeo\automation\analysis_gate;
 use plagiarism_dixeo\event\grade_draft_created;
 use plagiarism_dixeo\feedback\grade_feedback_storage;
+use plagiarism_dixeo\grading\grade_applier;
 
 /**
- * Prepares a proposed grade and holds it for the teacher.
+ * Prepares a proposed grade and, when automatic grading is on, writes it to the gradebook.
  *
- * Nothing this task writes reaches the student. The proposal sits in the plugin's own table
- * until a teacher opens the grading form, reviews it and saves it themselves, so the
- * gradebook only ever records a decision a person made.
+ * The proposal is always stored in the plugin table first. When the activity has asked for
+ * automatic grading, the same result is then applied through \assign::save_grade. A teacher
+ * can still change that grade afterwards.
  */
 class stage_draft_grade extends \core\task\adhoc_task {
     /** @var string Component the stored proposal belongs to. */
@@ -119,6 +120,12 @@ class stage_draft_grade extends \core\task\adhoc_task {
             throw new \moodle_exception('automation_grade_failed', 'plagiarism_dixeo', '', '');
         }
         $transaction->allow_commit();
+
+        if (grade_applier::apply($cmid, $userid, $submissionid, $mapped)) {
+            grade_feedback_storage::mark_applied($userid, self::COMPONENT, self::AREA, $submissionid);
+        } else {
+            mtrace("plagiarism_dixeo: draft grade stored for submission $submissionid but not written to the gradebook.");
+        }
 
         grade_draft_created::create([
             'context' => \context_module::instance($cmid),
