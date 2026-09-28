@@ -35,11 +35,12 @@ use plagiarism_dixeo\task\analyze_submission;
 use plagiarism_dixeo\task\stage_draft_grade;
 
 /**
- * Turns assignment submission events into queued analysis work.
+ * Turns assignment submission events into analysis work.
  *
- * These handlers run inside the student's request, so they do no more than check the
- * configuration and put a task on the queue. Everything that talks to the Dixeo API happens
- * later, in the task, where a slow or failing service cannot hold up a submission.
+ * In asynchronous mode these handlers only queue an adhoc task, so a slow service cannot
+ * hold up a submission. In synchronous mode they run the same task immediately; a failure
+ * is logged and a pending record is left for retry_pending_analysis rather than thrown
+ * back into Moodle's submit flow.
  */
 class observer {
     /** @var string Component the stored analysis belongs to. */
@@ -54,7 +55,7 @@ class observer {
      * @param base $event Submission plugin assessable_uploaded event.
      */
     public static function submission_uploaded(base $event): void {
-        self::queue_analysis(
+        self::dispatch_analysis(
             (int) $event->contextinstanceid,
             (int) $event->courseid,
             (int) $event->userid,
@@ -74,10 +75,10 @@ class observer {
         $userid = (int) $event->userid;
         $submissionid = (int) $event->objectid;
 
-        self::queue_analysis($cmid, $courseid, $userid, $submissionid, analysis_gate::TRIGGER_SUBMIT);
+        self::dispatch_analysis($cmid, $courseid, $userid, $submissionid, analysis_gate::TRIGGER_SUBMIT);
 
         if (analysis_gate::is_available() && analysis_gate::wants_draft_grade($cmid)) {
-            self::queue(new stage_draft_grade(), $cmid, $courseid, $userid, $submissionid);
+            self::dispatch(new stage_draft_grade(), $cmid, $courseid, $userid, $submissionid, false);
         }
     }
 
@@ -142,7 +143,7 @@ class observer {
     }
 
     /**
-     * Queue an analysis run if every switch allows it.
+     * Run or queue an analysis depending on evaluation_mode.
      *
      * @param int $cmid Assignment course module id.
      * @param int $courseid Course id.
@@ -150,7 +151,7 @@ class observer {
      * @param int $submissionid Assign submission id.
      * @param string $trigger The trigger that fired.
      */
-    private static function queue_analysis(
+    private static function dispatch_analysis(
         int $cmid,
         int $courseid,
         int $userid,
@@ -161,24 +162,26 @@ class observer {
             return;
         }
 
-        self::queue(new analyze_submission(), $cmid, $courseid, $userid, $submissionid);
+        self::dispatch(new analyze_submission(), $cmid, $courseid, $userid, $submissionid, true);
     }
 
     /**
-     * Put a task on the adhoc queue on the student's behalf.
+     * Queue the task, or run it now when evaluation_mode is synchronous.
      *
-     * @param \core\task\adhoc_task $task Task to queue.
+     * @param \core\task\adhoc_task $task Task to run.
      * @param int $cmid Assignment course module id.
      * @param int $courseid Course id.
      * @param int $userid Student user id.
      * @param int $submissionid Assign submission id.
+     * @param bool $leavepending On a sync failure, store a pending authorship record for retry.
      */
-    private static function queue(
+    private static function dispatch(
         \core\task\adhoc_task $task,
         int $cmid,
         int $courseid,
         int $userid,
-        int $submissionid
+        int $submissionid,
+        bool $leavepending
     ): void {
         if ($cmid <= 0 || $courseid <= 0 || $userid <= 0 || $submissionid <= 0) {
             return;
@@ -193,7 +196,33 @@ class observer {
             'submissionid' => $submissionid,
         ]);
 
-        // Saving a draft fires one event per submission plugin, so identical work is queued once.
-        manager::queue_adhoc_task($task, true);
+        if (!analysis_gate::is_sync()) {
+            // Saving a draft fires one event per submission plugin, so identical work is queued once.
+            manager::queue_adhoc_task($task, true);
+            return;
+        }
+
+        try {
+            $task->execute();
+        } catch (\Throwable $e) {
+            mtrace('plagiarism_dixeo: synchronous evaluation failed: ' . $e->getMessage());
+            if ($leavepending) {
+                self::leave_pending_analysis($userid, $submissionid);
+            }
+        }
+    }
+
+    /**
+     * Ensure a pending authorship row exists so retry_pending_analysis can pick the submission up.
+     *
+     * @param int $userid Student user id.
+     * @param int $submissionid Assign submission id.
+     */
+    private static function leave_pending_analysis(int $userid, int $submissionid): void {
+        $existing = author_storage::get_record_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+        if ($existing) {
+            return;
+        }
+        author_storage::create_record($userid, self::COMPONENT, self::AREA, $submissionid);
     }
 }
