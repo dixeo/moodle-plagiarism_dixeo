@@ -41,6 +41,8 @@ final class authorship_helpers_test extends \advanced_testcase {
     }
 
     public function test_is_enabled_respects_config(): void {
+        $this->assertFalse(authorship::is_enabled());
+
         set_config('authorship_enabled', 0, 'plagiarism_dixeo');
         $this->assertFalse(authorship::is_enabled());
 

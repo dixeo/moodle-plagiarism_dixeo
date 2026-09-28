@@ -31,6 +31,11 @@ use plagiarism_dixeo\external\get_verification_quiz;
 use plagiarism_dixeo\external\save_verification_progress;
 use plagiarism_dixeo\external\start_verification;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
 /**
  * The verification endpoints only serve the student who owns the quiz, and only while it is open.
  *
@@ -53,14 +58,19 @@ final class verification_externals_test extends \advanced_testcase {
     private $record;
 
     public function setUp(): void {
-        global $DB;
+        global $CFG, $DB;
 
         parent::setUp();
         $this->resetAfterTest(true);
         set_config('quiz_total_time', 300, 'plagiarism_dixeo');
 
+        $CFG->enableplagiarism = 1;
+        set_config('enabled', 1, 'plagiarism_dixeo');
+        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+
         $this->course = $this->getDataGenerator()->create_course();
         $this->assign = $this->getDataGenerator()->create_module('assign', ['course' => $this->course->id]);
+        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '1']);
         $this->student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
 
         $now = time();

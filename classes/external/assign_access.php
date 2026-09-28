@@ -45,6 +45,7 @@ final class assign_access {
         external_api::validate_context($context);
         require_capability('plagiarism/dixeo:mod_assign_pre_submission', $context);
         require_capability('mod/assign:submit', $context);
+        self::require_activity_enabled($cmid);
         return $context;
     }
 
@@ -61,7 +62,27 @@ final class assign_access {
         external_api::validate_context($context);
         require_capability('plagiarism/dixeo:mod_assign_grade_submission', $context);
         require_capability('mod/assign:grade', $context);
+        self::require_activity_enabled($cmid);
         return $context;
+    }
+
+    /**
+     * Refuse when the site or this assignment has Dixeo switched off.
+     *
+     * Capability checks run first so an outsider still sees a login or capability error
+     * rather than a setting message for an activity they cannot reach.
+     *
+     * @param int $cmid Assign course module id.
+     * @throws \moodle_exception
+     */
+    public static function require_activity_enabled(int $cmid): void {
+        global $CFG;
+
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
+        if (!\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
+            throw new \moodle_exception('activity_not_enabled', 'plagiarism_dixeo');
+        }
     }
 
     /**

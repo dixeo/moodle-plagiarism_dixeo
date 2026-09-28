@@ -22,6 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+$string['activity_not_enabled'] = 'Dixeo is not enabled for this assignment.';
 $string['allow_backwards_navigation'] = 'Allow backwards navigation';
 $string['allow_backwards_navigation_help'] = 'Let students return to questions they have already passed. When this is off, moving on is final and the next button is briefly disabled to guard against double clicks.';
 $string['analysis_aria_label'] = 'AI analysis';

@@ -27,6 +27,10 @@ namespace plagiarism_dixeo;
 
 use plagiarism_dixeo\external\assign_access;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
 
 /**
  * Capability / context checks for assign UX externals.
@@ -39,9 +43,24 @@ final class assign_access_test extends \advanced_testcase {
         $this->resetAfterTest(true);
     }
 
+    /**
+     * Turn Dixeo on for an assignment at site and activity level.
+     *
+     * @param int $cmid Course module id.
+     */
+    private function enable_dixeo(int $cmid): void {
+        global $CFG;
+
+        $CFG->enableplagiarism = 1;
+        set_config('enabled', 1, 'plagiarism_dixeo');
+        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        \plagiarism_plugin_dixeo::set_activity_config($cmid, ['use_dixeo' => '1']);
+    }
+
     public function test_student_can_analyze_own_module(): void {
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $this->setUser($student);
 
@@ -63,6 +82,48 @@ final class assign_access_test extends \advanced_testcase {
     public function test_teacher_can_grade(): void {
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $this->setUser($teacher);
+
+        $context = assign_access::require_teacher_grade((int) $assign->cmid);
+        $this->assertInstanceOf(\context_module::class, $context);
+    }
+
+    public function test_student_cannot_analyze_when_the_activity_is_off(): void {
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
+        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, ['use_dixeo' => '0']);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $this->setUser($student);
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('activity_not_enabled', 'plagiarism_dixeo'));
+        assign_access::require_student_analyze((int) $assign->cmid);
+    }
+
+    public function test_teacher_cannot_grade_when_the_activity_is_off(): void {
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
+        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, ['use_dixeo' => '0']);
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $this->setUser($teacher);
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('activity_not_enabled', 'plagiarism_dixeo'));
+        assign_access::require_teacher_grade((int) $assign->cmid);
+    }
+
+    public function test_teacher_can_grade_when_auto_grading_is_off(): void {
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
+        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, [
+            'use_dixeo' => '1',
+            'enable_auto_grading' => '0',
+        ]);
         $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
         $this->setUser($teacher);
 
@@ -85,6 +146,7 @@ final class assign_access_test extends \advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $this->setUser($student);
 

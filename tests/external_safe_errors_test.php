@@ -34,6 +34,11 @@ use plagiarism_dixeo\external\mod_assign_grade_submission;
 use plagiarism_dixeo\external\mod_assign_pre_submission;
 use plagiarism_dixeo\external\verify_authorship;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
 
 /**
  * Ensures unexpected failures do not leak raw exception text to WS clients.
@@ -50,6 +55,20 @@ final class external_safe_errors_test extends \advanced_testcase {
         parent::tearDown();
     }
 
+    /**
+     * Turn Dixeo on for an assignment at site and activity level.
+     *
+     * @param int $cmid Course module id.
+     */
+    private function enable_dixeo(int $cmid): void {
+        global $CFG;
+
+        $CFG->enableplagiarism = 1;
+        set_config('enabled', 1, 'plagiarism_dixeo');
+        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        \plagiarism_plugin_dixeo::set_activity_config($cmid, ['use_dixeo' => '1']);
+    }
+
     public function test_pre_submission_withholds_raw_exception_when_debugging_off(): void {
         $this->resetAfterTest();
         set_debugging(DEBUG_NONE);
@@ -61,6 +80,7 @@ final class external_safe_errors_test extends \advanced_testcase {
         ]);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $this->setUser($student);
+        $this->enable_dixeo((int) $assign->cmid);
 
         $mock = $this->createMock(assign_ux_service::class);
         $mock->expects($this->once())
@@ -87,6 +107,7 @@ final class external_safe_errors_test extends \advanced_testcase {
         $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $this->setUser($teacher);
+        $this->enable_dixeo((int) $assign->cmid);
 
         $mock = $this->createMock(assign_ux_service::class);
         $mock->expects($this->once())
@@ -111,6 +132,7 @@ final class external_safe_errors_test extends \advanced_testcase {
         ]);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $this->setUser($student);
+        $this->enable_dixeo((int) $assign->cmid);
 
         $mock = $this->createMock(assign_ux_service::class);
         $mock->expects($this->once())
@@ -138,6 +160,7 @@ final class external_safe_errors_test extends \advanced_testcase {
         ]);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $this->setUser($student);
+        $this->enable_dixeo((int) $assign->cmid);
 
         $mock = $this->createMock(assign_ux_service::class);
         $mock->expects($this->once())
@@ -165,6 +188,7 @@ final class external_safe_errors_test extends \advanced_testcase {
         ]);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $this->setUser($student);
+        $this->enable_dixeo((int) $assign->cmid);
 
         $now = time();
         $submissionid = $DB->insert_record('assign_submission', (object) [
