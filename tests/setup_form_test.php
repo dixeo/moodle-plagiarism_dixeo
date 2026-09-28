@@ -62,10 +62,14 @@ final class setup_form_test extends \advanced_testcase {
         $this->assertSame(0, $defaults['authorship_enabled']);
         $this->assertSame(0, $defaults['verification_test']);
         $this->assertSame('submit', $defaults['assign_trigger']);
+        $this->assertSame('async', $defaults['evaluation_mode']);
     }
 
-    public function test_evaluation_mode_is_gone(): void {
-        $this->assertArrayNotHasKey('evaluation_mode', \plagiarism_dixeo_setup_form::get_config_fields());
+    public function test_evaluation_mode_is_accepted(): void {
+        $this->assertArrayHasKey('evaluation_mode', \plagiarism_dixeo_setup_form::get_config_fields());
+        $this->assertSame([], $this->validate(['evaluation_mode' => 'sync']));
+        $this->assertSame([], $this->validate(['evaluation_mode' => 'async']));
+        $this->assertArrayHasKey('evaluation_mode', $this->validate(['evaluation_mode' => 'whenever']));
     }
 
     public function test_valid_settings_pass_validation(): void {

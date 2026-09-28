@@ -61,6 +61,7 @@ class plagiarism_dixeo_setup_form extends moodleform {
             'student_disclosure' => '',
             'enable_mod_assign' => 0,
             'assign_trigger' => self::TRIGGER_SUBMIT,
+            'evaluation_mode' => 'async',
             'authorship_enabled' => 0,
             'verification_test' => 0,
             'authorship_threshold' => (int) authorship::DEFAULT_CONFIDENCE_THRESHOLD,
@@ -86,6 +87,7 @@ class plagiarism_dixeo_setup_form extends moodleform {
             'enabled' => [0, 1],
             'enable_mod_assign' => [0, 1],
             'assign_trigger' => [self::TRIGGER_UPLOAD, self::TRIGGER_SUBMIT],
+            'evaluation_mode' => ['async', 'sync'],
             'authorship_enabled' => [0, 1],
             'verification_test' => [0, 1],
             'allow_backwards_navigation' => [0, 1],
@@ -143,6 +145,14 @@ class plagiarism_dixeo_setup_form extends moodleform {
         $mform->setType('assign_trigger', PARAM_ALPHA);
         $mform->addHelpButton('assign_trigger', 'assign_trigger', 'plagiarism_dixeo');
         $mform->hideIf('assign_trigger', 'enable_mod_assign', 'eq', 0);
+
+        $mform->addElement('select', 'evaluation_mode', get_string('evaluation_mode', 'plagiarism_dixeo'), [
+            'async' => get_string('evaluation_mode_async', 'plagiarism_dixeo'),
+            'sync' => get_string('evaluation_mode_sync', 'plagiarism_dixeo'),
+        ]);
+        $mform->setType('evaluation_mode', PARAM_ALPHA);
+        $mform->addHelpButton('evaluation_mode', 'evaluation_mode', 'plagiarism_dixeo');
+        $mform->hideIf('evaluation_mode', 'enable_mod_assign', 'eq', 0);
 
         $mform->addElement(
             'textarea',

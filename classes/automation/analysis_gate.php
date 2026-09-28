@@ -39,6 +39,12 @@ class analysis_gate {
     /** @var string Analyse only when the student submits for grading. */
     public const TRIGGER_SUBMIT = 'submit';
 
+    /** @var string Queue analysis for later. */
+    public const MODE_ASYNC = 'async';
+
+    /** @var string Run analysis in the observer. */
+    public const MODE_SYNC = 'sync';
+
     /**
      * Whether automatic analysis of assignments is switched on for the site.
      *
@@ -64,6 +70,26 @@ class analysis_gate {
         $trigger = (string) get_config('plagiarism_dixeo', 'assign_trigger');
 
         return $trigger === self::TRIGGER_UPLOAD ? self::TRIGGER_UPLOAD : self::TRIGGER_SUBMIT;
+    }
+
+    /**
+     * Whether analysis runs in the observer or is queued for later.
+     *
+     * @return string One of the MODE_* constants.
+     */
+    public static function get_evaluation_mode(): string {
+        $mode = (string) get_config('plagiarism_dixeo', 'evaluation_mode');
+
+        return $mode === self::MODE_SYNC ? self::MODE_SYNC : self::MODE_ASYNC;
+    }
+
+    /**
+     * Whether analysis should run before the observer returns.
+     *
+     * @return bool
+     */
+    public static function is_sync(): bool {
+        return self::get_evaluation_mode() === self::MODE_SYNC;
     }
 
     /**
