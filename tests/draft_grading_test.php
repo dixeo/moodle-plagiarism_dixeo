@@ -25,16 +25,21 @@
 
 namespace plagiarism_dixeo;
 
+use local_dixeo\dto\operation_result;
+use local_dixeo\external\service_factory;
+use local_dixeo\service\assign_ux_service;
 use plagiarism_dixeo\automation\analysis_gate;
 use plagiarism_dixeo\external\get_grade_draft;
 use plagiarism_dixeo\feedback\grade_feedback_storage;
+use plagiarism_dixeo\grading\grade_applier;
 use plagiarism_dixeo\task\stage_draft_grade;
 
 /**
- * A proposed grade is held for a teacher and never written to the gradebook by itself.
+ * A proposed grade is stored and, when automatic grading is on, written to the gradebook.
  *
  * @covers \plagiarism_dixeo\external\get_grade_draft
  * @covers \plagiarism_dixeo\feedback\grade_feedback_storage
+ * @covers \plagiarism_dixeo\grading\grade_applier
  * @covers \plagiarism_dixeo\observer::submission_graded
  * @covers \plagiarism_dixeo\task\stage_draft_grade
  */
@@ -86,6 +91,11 @@ final class draft_grading_test extends \advanced_testcase {
             'use_dixeo' => '1',
             'enable_auto_grading' => '1',
         ]);
+    }
+
+    protected function tearDown(): void {
+        service_factory::reset();
+        parent::tearDown();
     }
 
     /**
@@ -311,5 +321,122 @@ final class draft_grading_test extends \advanced_testcase {
         $this->assertInstanceOf(\plagiarism_dixeo\event\grade_draft_applied::class, $events[0]);
         $this->assertSame((int) $draft->id, (int) $events[0]->objectid);
         $this->assertSame((int) $this->student->id, (int) $events[0]->relateduserid);
+    }
+
+    public function test_the_disclaimer_is_prepended_to_applied_feedback(): void {
+        $html = grade_applier::add_feedback_disclaimer('<p>Good work.</p>');
+
+        $this->assertStringContainsString(get_string('grading_ai_disclaimer', 'plagiarism_dixeo'), $html);
+        $this->assertStringContainsString('Good work.', $html);
+    }
+
+    public function test_applying_a_simple_draft_writes_the_gradebook(): void {
+        $this->setAdminUser();
+        $draft = $this->store_draft();
+
+        $applied = grade_applier::apply(
+            (int) $this->assign->cmid,
+            (int) $this->student->id,
+            $this->submissionid,
+            grade_feedback_storage::record_to_result($draft)
+        );
+
+        $this->assertTrue($applied);
+        $grades = grade_get_grades(
+            (int) $this->course->id,
+            'mod',
+            'assign',
+            (int) $this->assign->id,
+            [(int) $this->student->id]
+        );
+        $this->assertEqualsWithDelta(72.0, $grades->items[0]->grades[(int) $this->student->id]->grade, 0.01);
+    }
+
+    public function test_the_staging_task_applies_the_grade_when_auto_grading_is_on(): void {
+        $this->setAdminUser();
+
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->method('submit_grade_and_wait')
+            ->willReturn(new operation_result(true, 'job-grade', [
+                'grade' => 81.0,
+                'feedback' => '<p>Well argued.</p>',
+                'analysis' => 'Clear structure.',
+            ]));
+        $mock->method('map_grade_result')
+            ->willReturn([
+                'gradingmethod' => grade_feedback_storage::METHOD_SIMPLE,
+                'analysis' => 'Clear structure.',
+                'feedback' => '<p>Well argued.</p>',
+                'grade' => 81.0,
+            ]);
+        service_factory::set_test_assign_ux_service($mock);
+
+        $task = new stage_draft_grade();
+        $task->set_custom_data([
+            'cmid' => (int) $this->assign->cmid,
+            'courseid' => (int) $this->course->id,
+            'userid' => (int) $this->student->id,
+            'submissionid' => $this->submissionid,
+        ]);
+
+        ob_start();
+        $task->execute();
+        ob_end_clean();
+
+        $stored = grade_feedback_storage::get_by_context(
+            (int) $this->student->id,
+            'mod_assign',
+            'submission',
+            $this->submissionid
+        );
+        $this->assertNotNull($stored);
+        $this->assertSame(grade_feedback_storage::STATUS_APPLIED, $stored->status);
+
+        $grades = grade_get_grades(
+            (int) $this->course->id,
+            'mod',
+            'assign',
+            (int) $this->assign->id,
+            [(int) $this->student->id]
+        );
+        $this->assertEqualsWithDelta(81.0, $grades->items[0]->grades[(int) $this->student->id]->grade, 0.01);
+    }
+
+    public function test_synchronous_mode_does_not_queue_a_draft_grade(): void {
+        set_config('evaluation_mode', analysis_gate::MODE_SYNC, 'plagiarism_dixeo');
+
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->method('submit_review_and_wait')
+            ->willReturn(new operation_result(true, 'job-review', ['feedback_html' => '<p>Ok.</p>']));
+        $mock->method('map_review_result')
+            ->willReturn(['feedback_html' => '<p>Ok.</p>']);
+        $mock->method('submit_grade_and_wait')
+            ->willReturn(new operation_result(true, 'job-grade', [
+                'grade' => 70.0,
+                'feedback' => '<p>Ok.</p>',
+                'analysis' => 'Ok.',
+            ]));
+        $mock->method('map_grade_result')
+            ->willReturn([
+                'gradingmethod' => grade_feedback_storage::METHOD_SIMPLE,
+                'analysis' => 'Ok.',
+                'feedback' => '<p>Ok.</p>',
+                'grade' => 70.0,
+            ]);
+        service_factory::set_test_assign_ux_service($mock);
+
+        ob_start();
+        $this->fire_submitted();
+        ob_end_clean();
+
+        global $DB;
+        $this->assertSame(0, $DB->count_records('task_adhoc', ['classname' => '\\' . stage_draft_grade::class]));
+        $stored = grade_feedback_storage::get_by_context(
+            (int) $this->student->id,
+            'mod_assign',
+            'submission',
+            $this->submissionid
+        );
+        $this->assertNotNull($stored);
     }
 }
