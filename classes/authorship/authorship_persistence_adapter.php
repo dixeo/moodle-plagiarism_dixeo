@@ -45,6 +45,7 @@ class authorship_persistence_adapter implements assign_ux_persistence_interface 
      * @param int $itemid Item id (e.g. assign_submission id).
      * @param float $initialconfidence Initial human-authorship confidence 0–100.
      * @param array|null $quizdata Decoded quiz structure to store, or null.
+     * @param string $initialexplanation Reasons for the initial score.
      * @return \stdClass|null Record including id, or null on failure.
      */
     public function create_authorship_record(
@@ -53,10 +54,12 @@ class authorship_persistence_adapter implements assign_ux_persistence_interface 
         string $area,
         int $itemid,
         float $initialconfidence,
-        ?array $quizdata = null
+        ?array $quizdata = null,
+        string $initialexplanation = ''
     ): ?\stdClass {
         return author_storage::create_record($userid, $component, $area, $itemid, [
             'initial_confidence' => $initialconfidence,
+            'initial_explanation' => $initialexplanation,
             'quiz_data' => $quizdata,
         ]);
     }
@@ -96,19 +99,28 @@ class authorship_persistence_adapter implements assign_ux_persistence_interface 
      * @param array $responses Question id => answer.
      * @param float $finalconfidence Final confidence 0–100.
      * @param float|null $quizgrade Objective quiz grade 0–100, or null.
+     * @param string $finalexplanation Reasons for the final score.
+     * @param string $quizexplanation How the verification test was judged overall.
+     * @param array $questionfeedbacks Per-question notes, in question order.
      * @return \stdClass|null Updated record, or null if missing / update failed.
      */
     public function save_quiz_result(
         int $recordid,
         array $responses,
         float $finalconfidence,
-        ?float $quizgrade
+        ?float $quizgrade,
+        string $finalexplanation = '',
+        string $quizexplanation = '',
+        array $questionfeedbacks = []
     ): ?\stdClass {
         $updated = author_storage::update_record($recordid, [
             'status' => author_storage::STATUS_COMPLETE,
             'quiz_responses' => $responses,
             'final_confidence' => $finalconfidence,
             'quiz_grade' => $quizgrade,
+            'final_explanation' => $finalexplanation,
+            'quiz_explanation' => $quizexplanation,
+            'quiz_question_feedbacks' => $questionfeedbacks,
         ]);
 
         return $updated ? author_storage::get_record($recordid) : null;

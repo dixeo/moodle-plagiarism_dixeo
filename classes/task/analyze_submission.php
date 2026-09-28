@@ -205,6 +205,7 @@ class analyze_submission extends \core\task\adhoc_task {
         $transaction = $DB->start_delegated_transaction();
         $record = author_storage::create_record($userid, self::COMPONENT, self::AREA, (int) $submission->id, [
             'initial_confidence' => $score,
+            'initial_explanation' => (string) ($confidence['explanation'] ?? ''),
             'quiz_data' => $quizdata,
             'source_timemodified' => (int) $submission->timemodified,
             'source_attempt' => (int) $submission->attemptnumber,

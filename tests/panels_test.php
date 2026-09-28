@@ -26,6 +26,7 @@
 namespace plagiarism_dixeo;
 
 use plagiarism_dixeo\authorship\author_storage;
+use plagiarism_dixeo\feedback\presubmission_feedback_storage;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -155,7 +156,9 @@ final class panels_test extends \advanced_testcase {
     public function test_a_teacher_sees_the_students_score(): void {
         $this->store_record();
 
-        $this->assertStringContainsString('82.5', $this->render_as($this->teacher));
+        $html = $this->render_as($this->teacher);
+        $this->assertStringContainsString('82.5', $html);
+        $this->assertStringContainsString('Consistent with earlier work.', $html);
     }
 
     public function test_nothing_renders_when_the_activity_opts_out(): void {
@@ -179,6 +182,20 @@ final class panels_test extends \advanced_testcase {
 
         $this->assertSame('', $this->render_as($this->student));
         $this->assertStringContainsString('82.5', $this->render_as($this->teacher));
+    }
+
+    public function test_draft_feedback_is_shown_to_the_student_and_teacher(): void {
+        presubmission_feedback_storage::create_record(
+            (int) $this->student->id,
+            'mod_assign',
+            'submission',
+            $this->submissionid,
+            '<p>Tighten the conclusion.</p>'
+        );
+
+        $this->assertStringContainsString('Tighten the conclusion.', $this->render_as($this->student));
+        $this->assertStringContainsString('Tighten the conclusion.', $this->render_as($this->teacher));
+        $this->assertSame('', $this->render_as($this->classmate));
     }
 
     public function test_the_explanation_is_withheld_unless_feedback_is_enabled(): void {

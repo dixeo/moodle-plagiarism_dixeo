@@ -159,4 +159,55 @@ final class get_assign_job_status_test extends \advanced_testcase {
         $this->assertStringContainsString('Coaching tip', $result['html']);
         $this->assertSame('', $result['errormessage']);
     }
+
+    public function test_completed_review_is_stored_for_the_submission(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', [
+            'course' => $course->id,
+            'assignsubmission_onlinetext_enabled' => 1,
+        ]);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $this->setUser($student);
+        $this->enable_dixeo((int) $assign->cmid);
+
+        $now = time();
+        $submissionid = (int) $DB->insert_record('assign_submission', (object) [
+            'assignment' => $assign->id,
+            'userid' => $student->id,
+            'status' => 'draft',
+            'attemptnumber' => 0,
+            'latest' => 1,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+
+        $status = new job_status(
+            jobid: 'job-store',
+            type: 'assign_review',
+            status: job_status::STATUS_COMPLETED,
+            progress: 100,
+            createdat: time(),
+            result: ['feedback_html' => '<p>Kept after reload.</p>'],
+        );
+
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->method('get_status')->willReturn($status);
+        $mock->method('map_review_result')->willReturn(['feedback_html' => '<p>Kept after reload.</p>']);
+        service_factory::set_test_assign_ux_service($mock);
+
+        get_assign_job_status::execute('job-store', (int) $course->id, (int) $assign->cmid, 'review');
+
+        $stored = \plagiarism_dixeo\feedback\presubmission_feedback_storage::get_by_context(
+            (int) $student->id,
+            'mod_assign',
+            'submission',
+            $submissionid
+        );
+        $this->assertNotNull($stored);
+        $this->assertStringContainsString('Kept after reload.', $stored->feedback);
+    }
 }

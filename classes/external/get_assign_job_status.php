@@ -34,6 +34,7 @@ use local_dixeo\external\response_factory;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_submission_reader;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
+use plagiarism_dixeo\feedback\presubmission_feedback_storage;
 
 
 /**
@@ -110,7 +111,15 @@ class get_assign_job_status extends external_api {
             }
 
             if ($flow === self::FLOW_REVIEW) {
-                return self::completed_review($params['jobid'], $status, $params['courseid'], $modcontext, $service);
+                return self::completed_review(
+                    $params['jobid'],
+                    $status,
+                    $params['courseid'],
+                    $params['cmid'],
+                    (int) $USER->id,
+                    $modcontext,
+                    $service
+                );
             }
             return self::completed_grade($params['jobid'], $status, $params['courseid'], (int) $cm->id, $service);
         } catch (\required_capability_exception | \require_login_exception $e) {
@@ -187,6 +196,8 @@ class get_assign_job_status extends external_api {
      * @param string $jobid Job id.
      * @param job_status $status Status.
      * @param int $courseid Course id.
+     * @param int $cmid Assign course module id.
+     * @param int $userid Student user id.
      * @param \context $modcontext Module context.
      * @param \local_dixeo\service\assign_ux_service $service Service.
      * @return array
@@ -195,6 +206,8 @@ class get_assign_job_status extends external_api {
         string $jobid,
         job_status $status,
         int $courseid,
+        int $cmid,
+        int $userid,
         \context $modcontext,
         $service
     ): array {
@@ -207,6 +220,7 @@ class get_assign_job_status extends external_api {
             'filter' => false,
             'context' => $modcontext,
         ]);
+        self::store_review_feedback($cmid, $userid, (string) ($mapped['feedback_html'] ?? ''));
         $classes = 'alert alert-info alert-block fade in alert-dismissible plagiarism-dixeo-review-feedback';
         $html = '<div class="' . $classes . '" role="alert">' . $clean . '</div>';
         return [
@@ -217,6 +231,46 @@ class get_assign_job_status extends external_api {
             'html' => $html,
             'errormessage' => '',
         ];
+    }
+
+    /**
+     * Keep the Analyze result so it is still shown after a reload.
+     *
+     * @param int $cmid Assign course module id.
+     * @param int $userid Student user id.
+     * @param string $feedback Feedback HTML from the API.
+     */
+    protected static function store_review_feedback(int $cmid, int $userid, string $feedback): void {
+        global $DB;
+
+        $feedback = trim($feedback);
+        if ($cmid <= 0 || $userid <= 0 || $feedback === '') {
+            return;
+        }
+
+        $cm = get_coursemodule_from_id('assign', $cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) {
+            return;
+        }
+
+        $submission = $DB->get_record(
+            'assign_submission',
+            ['assignment' => (int) $cm->instance, 'userid' => $userid, 'latest' => 1],
+            'id,timemodified,attemptnumber'
+        );
+        if (!$submission) {
+            return;
+        }
+
+        presubmission_feedback_storage::create_record(
+            $userid,
+            'mod_assign',
+            'submission',
+            (int) $submission->id,
+            $feedback,
+            isset($submission->timemodified) ? (int) $submission->timemodified : null,
+            isset($submission->attemptnumber) ? (int) $submission->attemptnumber : null
+        );
     }
 
     /**

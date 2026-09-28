@@ -143,7 +143,15 @@ class verify_authorship extends external_api {
 
             $final = (float) $mapped['final_confidence'];
             $grade = $mapped['grade'] ?? authorship::compute_quiz_grade($record, $decoded);
-            $updated = $service->apply_authorship_final((int) $record->id, $decoded, $final, $grade);
+            $updated = $service->apply_authorship_final(
+                (int) $record->id,
+                $decoded,
+                $final,
+                $grade,
+                (string) ($mapped['explanation'] ?? ''),
+                (string) ($mapped['quiz_explanation'] ?? ''),
+                $mapped['question_feedbacks'] ?? []
+            );
             if (!$updated) {
                 return self::payload(false, 0.0, $operation->jobid, 'failed', $courseid, '');
             }

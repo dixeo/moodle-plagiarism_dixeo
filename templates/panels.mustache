@@ -32,7 +32,7 @@
         * cmid int - Course module id.
         * hasbody bool - Whether the panel has body content.
         * body string - Body HTML produced by format_text().
-        * collapsible bool - Whether the body starts collapsed.
+        * collapsible bool - Whether the body can be collapsed.
         * collapseid string - Unique id of the collapsible region.
         * maximizelabel string - Accessible label for the maximize button.
 
@@ -61,7 +61,8 @@
             <div class="card-header plagiarism-dixeo-panel-header {{headerclass}}"
                 {{#collapsible}}
                     role="button" tabindex="0" data-toggle="collapse" data-target="#{{collapseid}}"
-                    aria-expanded="false" aria-controls="{{collapseid}}"
+                    data-bs-toggle="collapse" data-bs-target="#{{collapseid}}"
+                    aria-expanded="true" aria-controls="{{collapseid}}"
                 {{/collapsible}}
             >
                 <div class="plagiarism-dixeo-panel-header-title">
@@ -84,7 +85,7 @@
             </div>
             {{#hasbody}}
                 {{#collapsible}}
-                    <div class="collapse" id="{{collapseid}}">
+                    <div class="collapse show" id="{{collapseid}}">
                         <div class="card-body">
                             <div class="card-text mb-0">{{{body}}}</div>
                         </div>
