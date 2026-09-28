@@ -31,6 +31,11 @@ use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\external\check_authorship;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
 /**
  * An in-progress verification must come back as the same record, without a new API job.
  *
@@ -64,6 +69,7 @@ final class check_authorship_resume_test extends \advanced_testcase {
             'course' => $course->id,
             'assignsubmission_onlinetext_enabled' => 1,
         ]);
+        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, ['use_dixeo' => '1']);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
 
         $now = time();

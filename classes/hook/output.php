@@ -75,6 +75,33 @@ class output {
     ];
 
     /**
+     * AMD calls that belong on this assign URL, or none when Dixeo is switched off.
+     *
+     * @param \moodle_url $url Current page URL.
+     * @return list<array{0: string, 1: string, 2: array}>
+     */
+    public static function amd_calls_for_url(\moodle_url $url): array {
+        global $CFG;
+
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
+        $cmid = (int) ($url->get_param('id') ?? 0);
+        if ($cmid <= 0 || !\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
+            return [];
+        }
+
+        $path = $url->get_path();
+        $calls = [];
+        foreach (self::$urlscriptmap as $entry) {
+            if (self::url_matches($path, $url, $entry)) {
+                $calls[] = $entry['amd'];
+            }
+        }
+
+        return $calls;
+    }
+
+    /**
      * Add scripts when head HTML is generated, based on the current URL.
      *
      * @param \core\hook\output\before_standard_head_html_generation $hook The hook.
@@ -90,37 +117,50 @@ class output {
         if (!$page || !$page->url || !$page->requires) {
             return;
         }
-        $path = $page->url->get_path();
 
-        foreach (self::$urlscriptmap as $entry) {
-            $pattern = $entry['pattern'];
-            $matchtype = $entry['match'] ?? self::MATCH_CONTAINS;
-            $amdconfig = $entry['amd'];
-            $queryparam = $entry['query_param'] ?? null;
+        foreach (self::amd_calls_for_url($page->url) as $amdconfig) {
+            $page->requires->js_call_amd($amdconfig[0], $amdconfig[1], $amdconfig[2]);
+        }
+    }
 
-            $matched = false;
-            if ($matchtype === self::MATCH_EXACT) {
-                $matched = ($path === $pattern || $path === '/' . ltrim($pattern, '/'));
-            } else if ($matchtype === self::MATCH_REGEX) {
-                $matched = (preg_match($pattern, $path) === 1);
-            } else {
-                $matched = (strpos($path, $pattern) !== false);
-            }
+    /**
+     * Whether a mapped entry applies to this path and query string.
+     *
+     * @param string $path URL path.
+     * @param \moodle_url $url Full URL, for query parameters.
+     * @param array $entry Map row.
+     * @return bool
+     */
+    private static function url_matches(string $path, \moodle_url $url, array $entry): bool {
+        $pattern = $entry['pattern'];
+        $matchtype = $entry['match'] ?? self::MATCH_CONTAINS;
 
-            if ($matched && $queryparam !== null) {
-                foreach ($queryparam as $name => $value) {
-                    $actual = (string) ($page->url->get_param($name) ?? '');
-                    $accepted = array_map('strval', is_array($value) ? $value : [$value]);
-                    if (!in_array($actual, $accepted, true)) {
-                        $matched = false;
-                        break;
-                    }
-                }
-            }
+        $matched = false;
+        if ($matchtype === self::MATCH_EXACT) {
+            $matched = ($path === $pattern || $path === '/' . ltrim($pattern, '/'));
+        } else if ($matchtype === self::MATCH_REGEX) {
+            $matched = (preg_match($pattern, $path) === 1);
+        } else {
+            $matched = (strpos($path, $pattern) !== false);
+        }
 
-            if ($matched) {
-                $page->requires->js_call_amd($amdconfig[0], $amdconfig[1], $amdconfig[2]);
+        if (!$matched) {
+            return false;
+        }
+
+        $queryparam = $entry['query_param'] ?? null;
+        if ($queryparam === null) {
+            return true;
+        }
+
+        foreach ($queryparam as $name => $value) {
+            $actual = (string) ($url->get_param($name) ?? '');
+            $accepted = array_map('strval', is_array($value) ? $value : [$value]);
+            if (!in_array($actual, $accepted, true)) {
+                return false;
             }
         }
+
+        return true;
     }
 }

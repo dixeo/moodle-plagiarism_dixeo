@@ -168,7 +168,7 @@ per-context deletion, user lists).
 | --- | --- | --- |
 | `enabled` | `0` | The plugin does nothing until an administrator switches it on |
 | `enable_mod_assign` | `0` | Assignments are not covered until opted in |
-| `use_dixeo` (per activity) | `0` | No submission is sent unless a teacher opts the activity in |
+| `use_dixeo` (per activity) | `0` | No Analyze UI, web services, panels, or automatic analysis unless the activity is opted in |
 | `enable_auto_grading` (per activity) | `0` | No draft grade is prepared unless a teacher asks for one |
 | `assign_trigger` | `submit` | Drafts are not sent on every keystroke-level save |
 

@@ -32,6 +32,11 @@ use plagiarism_dixeo\external\mod_assign_grade_submission;
 use plagiarism_dixeo\external\mod_assign_pre_submission;
 use plagiarism_dixeo\external\verify_authorship;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
 /**
  * Every endpoint refuses callers who lack the session, enrolment or capability it requires.
  *
@@ -70,6 +75,18 @@ final class external_authorisation_test extends \advanced_testcase {
         $this->student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
         $this->teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
         $this->outsider = $this->getDataGenerator()->create_user();
+    }
+
+    /**
+     * Turn Dixeo on for the test assignment.
+     */
+    private function enable_dixeo(): void {
+        global $CFG;
+
+        $CFG->enableplagiarism = 1;
+        set_config('enabled', 1, 'plagiarism_dixeo');
+        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '1']);
     }
 
     /**
@@ -177,10 +194,31 @@ final class external_authorisation_test extends \advanced_testcase {
     }
 
     public function test_a_teacher_may_reach_the_endpoints_their_role_allows(): void {
+        $this->enable_dixeo();
         $this->setUser($this->teacher);
 
         $result = get_grade_draft::execute((int) $this->assign->cmid, (int) $this->student->id);
 
         $this->assertFalse($result['hasdraft']);
+    }
+
+    public function test_pre_submission_refuses_when_the_activity_is_off(): void {
+        $this->enable_dixeo();
+        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '0']);
+        $this->setUser($this->student);
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('activity_not_enabled', 'plagiarism_dixeo'));
+        mod_assign_pre_submission::execute((int) $this->assign->cmid);
+    }
+
+    public function test_grade_submission_refuses_when_the_activity_is_off(): void {
+        $this->enable_dixeo();
+        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '0']);
+        $this->setUser($this->teacher);
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('activity_not_enabled', 'plagiarism_dixeo'));
+        mod_assign_grade_submission::execute((int) $this->assign->cmid, (int) $this->student->id);
     }
 }

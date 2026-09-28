@@ -62,11 +62,7 @@ class authorship {
      * @return bool
      */
     public static function is_enabled(): bool {
-        $value = get_config('plagiarism_dixeo', 'authorship_enabled');
-        if ($value === false || $value === null) {
-            return true;
-        }
-        return ((int) $value) !== 0;
+        return (int) get_config('plagiarism_dixeo', 'authorship_enabled') === 1;
     }
 
     /**
