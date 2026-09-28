@@ -125,6 +125,7 @@ final class verification_externals_test extends \advanced_testcase {
         $this->assertFalse($result['expired']);
         $this->assertSame(300, $result['expires_at'] - $result['started_at']);
         $this->assertGreaterThan(0, $result['remaining']);
+        $this->assertGreaterThan(0, $result['question_remaining']);
 
         $started = array_filter($events, fn($event) => $event instanceof \plagiarism_dixeo\event\verification_started);
         $this->assertCount(1, $started);
@@ -170,6 +171,28 @@ final class verification_externals_test extends \advanced_testcase {
         $this->assertSame(['q1' => 'true'], json_decode($result['answers'], true));
         $this->assertSame(1, $result['current_index']);
         $this->assertGreaterThan(0, $result['remaining']);
+        $this->assertGreaterThan(0, $result['question_remaining']);
+    }
+
+    public function test_saving_progress_on_a_later_question_starts_its_clock(): void {
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+
+        save_verification_progress::execute(
+            (int) $this->record->id,
+            json_encode(['q1' => 'true']),
+            json_encode(['q1' => 8]),
+            1
+        );
+
+        $result = get_verification_quiz::execute((int) $this->record->id);
+        $stored = author_storage::get_record((int) $this->record->id);
+        $state = quiz_session::load($stored);
+
+        $this->assertSame(1, $result['current_index']);
+        $this->assertArrayHasKey('q1', $state['question_started_at']);
+        $this->assertArrayHasKey('q2', $state['question_started_at']);
+        $this->assertGreaterThan(0, $state['question_started_at']['q2']);
     }
 
     public function test_nothing_is_saved_once_the_deadline_has_passed(): void {

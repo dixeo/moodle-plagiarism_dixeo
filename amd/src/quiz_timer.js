@@ -42,17 +42,36 @@ export default class QuizTimer {
      * @param {object} options Timer options.
      * @param {number} options.recordId Authorship record id.
      * @param {HTMLElement} options.body Element containing the quiz inputs.
-     * @param {HTMLElement} options.display Element the countdown is written into.
+     * @param {HTMLElement} [options.display] Element the total countdown is written into.
+     * @param {HTMLElement} [options.questionDisplay] Element the question countdown is written into.
      * @param {Function} options.collect Returns the current answers as an object keyed by question id.
+     * @param {Function} [options.getCurrentIndex] Returns the pager index of the visible question.
      * @param {Function} options.onExpire Called once when the server reports the quiz has closed.
+     * @param {Function} [options.onQuestionExpire] Called once when the current question's time runs out.
+     * @param {Function} [options.onState] Called whenever a server payload is adopted.
      */
-    constructor({recordId, body, display, collect, onExpire}) {
+    constructor({
+        recordId,
+        body,
+        display,
+        questionDisplay,
+        collect,
+        getCurrentIndex,
+        onExpire,
+        onQuestionExpire,
+        onState
+    }) {
         this.recordId = recordId;
         this.body = body;
-        this.display = display;
+        this.display = display || null;
+        this.questionDisplay = questionDisplay || null;
         this.collect = collect;
+        this.getCurrentIndex = getCurrentIndex || (() => 0);
         this.onExpire = onExpire;
+        this.onQuestionExpire = onQuestionExpire || null;
+        this.onState = onState || null;
         this.remaining = null;
+        this.questionRemaining = null;
         this.expired = false;
         this.stopped = false;
         this.tickHandle = null;
@@ -60,12 +79,14 @@ export default class QuizTimer {
         this.focusStart = null;
         this.focusQuestion = null;
         this.timings = {};
+        this.questionExpireNotified = false;
+        this.questionExpireIndex = null;
     }
 
     /**
      * Start or resume the quiz and begin counting down.
      *
-     * @returns {Promise<void>}
+     * @returns {Promise<object>} The quiz payload from get_verification_quiz.
      */
     async start() {
         const state = await Ajax.call([{
@@ -75,15 +96,17 @@ export default class QuizTimer {
 
         this.adopt(state);
         if (this.expired) {
-            return;
+            return state;
         }
 
-        await this.restoreAnswers();
+        const quiz = await this.fetchQuiz();
+        this.restoreVisibleAnswers(quiz);
         this.trackQuestionFocus();
 
         this.tickHandle = setInterval(() => this.tick(), TICK_INTERVAL);
         this.syncHandle = setInterval(() => this.sync(), SYNC_INTERVAL);
         this.render();
+        return quiz;
     }
 
     /**
@@ -96,18 +119,28 @@ export default class QuizTimer {
     }
 
     /**
-     * Put answers saved earlier back into the form, so a reload resumes where the student left off.
+     * Load the quiz, its saved answers, and the authoritative clocks.
      *
-     * @returns {Promise<void>}
+     * @returns {Promise<object>}
      */
-    async restoreAnswers() {
+    async fetchQuiz() {
         const quiz = await Ajax.call([{
             methodname: 'plagiarism_dixeo_get_verification_quiz',
             args: {record_id: this.recordId}, // eslint-disable-line camelcase
         }])[0];
 
         this.adopt(quiz);
+        return quiz;
+    }
 
+    /**
+     * Put saved answers for the visible question back into the form.
+     *
+     * Other answers stay in memory on the pager; only the question currently in the DOM is filled.
+     *
+     * @param {object} quiz Payload from get_verification_quiz.
+     */
+    restoreVisibleAnswers(quiz) {
         let answers;
         try {
             answers = JSON.parse(quiz.answers || '{}');
@@ -125,8 +158,6 @@ export default class QuizTimer {
                 }
             });
         });
-
-        this.body.dispatchEvent(new Event('change', {bubbles: true}));
     }
 
     /**
@@ -172,33 +203,61 @@ export default class QuizTimer {
             return;
         }
         this.remaining = state.remaining >= 0 ? state.remaining : null;
+        this.questionRemaining = state.question_remaining >= 0 ? state.question_remaining : null;
+        const index = typeof state.current_index === 'number' ? state.current_index : this.getCurrentIndex();
+        if (this.questionExpireIndex !== index) {
+            this.questionExpireNotified = false;
+            this.questionExpireIndex = index;
+        }
+        if (this.onState) {
+            this.onState(state);
+        }
         if (state.expired || this.remaining === 0) {
             this.expire();
+            return;
         }
+        this.maybeNotifyQuestionExpire();
     }
 
     /**
      * Count down one second locally between syncs.
      */
     tick() {
-        if (this.remaining === null) {
-            return;
+        if (this.remaining !== null) {
+            this.remaining = Math.max(0, this.remaining - 1);
         }
-        this.remaining = Math.max(0, this.remaining - 1);
+        if (this.questionRemaining !== null) {
+            this.questionRemaining = Math.max(0, this.questionRemaining - 1);
+        }
         this.render();
         if (this.remaining === 0) {
             this.sync();
+            return;
+        }
+        this.maybeNotifyQuestionExpire();
+    }
+
+    /**
+     * Tell the pager once when the current question's time has run out.
+     */
+    maybeNotifyQuestionExpire() {
+        if (this.questionRemaining !== 0 || this.questionExpireNotified || this.expired) {
+            return;
+        }
+        this.questionExpireNotified = true;
+        if (this.onQuestionExpire) {
+            this.onQuestionExpire();
         }
     }
 
     /**
      * Send the current answers to the server and take back the authoritative time remaining.
      *
-     * @returns {Promise<void>}
+     * @returns {Promise<object|null>} The saved state, or null when the sync could not run.
      */
     async sync() {
         if (this.stopped) {
-            return;
+            return null;
         }
         this.bankFocusTime();
 
@@ -209,13 +268,14 @@ export default class QuizTimer {
                     record_id: this.recordId, // eslint-disable-line camelcase
                     responses: JSON.stringify(this.collect()),
                     timings: JSON.stringify(this.timings),
-                    current_index: 0, // eslint-disable-line camelcase
+                    current_index: this.getCurrentIndex(), // eslint-disable-line camelcase
                 },
             }])[0];
             this.adopt(state);
+            return state;
         } catch (e) {
             // A failed sync is not fatal: the server clock still governs, and the next sync retries.
-            return;
+            return null;
         }
     }
 
@@ -236,17 +296,33 @@ export default class QuizTimer {
     }
 
     /**
-     * Redraw the countdown.
+     * Redraw the countdowns.
      *
      * @returns {Promise<void>}
      */
     async render() {
-        if (!this.display || this.remaining === null) {
-            return;
+        if (this.display) {
+            if (this.remaining === null) {
+                this.display.textContent = '';
+                this.display.classList.remove('text-danger');
+            } else {
+                const key = this.expired ? 'quiz_expired' : 'quiz_time_remaining';
+                const argument = this.expired ? undefined : formatClock(this.remaining);
+                this.display.textContent = await getString(key, 'plagiarism_dixeo', argument);
+                this.display.classList.toggle('text-danger', this.expired || this.remaining <= URGENT_THRESHOLD);
+            }
         }
-        const key = this.expired ? 'quiz_expired' : 'quiz_time_remaining';
-        const argument = this.expired ? undefined : formatClock(this.remaining);
-        this.display.textContent = await getString(key, 'plagiarism_dixeo', argument);
-        this.display.classList.toggle('text-danger', this.expired || this.remaining <= URGENT_THRESHOLD);
+        if (this.questionDisplay) {
+            if (this.questionRemaining === null) {
+                this.questionDisplay.textContent = '';
+                this.questionDisplay.classList.remove('text-danger');
+            } else {
+                this.questionDisplay.textContent = formatClock(this.questionRemaining);
+                this.questionDisplay.classList.toggle(
+                    'text-danger',
+                    this.questionRemaining === 0 || this.questionRemaining <= URGENT_THRESHOLD
+                );
+            }
+        }
     }
 }

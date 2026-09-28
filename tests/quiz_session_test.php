@@ -200,6 +200,52 @@ final class quiz_session_test extends \advanced_testcase {
         $this->assertSame(0, quiz_session::get_next_button_delay());
     }
 
+    public function test_starting_records_when_the_first_question_was_opened(): void {
+        set_config('quiz_time_true_false', 60, 'plagiarism_dixeo');
+        $record = $this->create_quiz_record();
+
+        [$state] = quiz_session::start($record);
+
+        $this->assertArrayHasKey('q1', $state['question_started_at']);
+        $this->assertSame($state['started_at'], $state['question_started_at']['q1']);
+        $this->assertLessThanOrEqual(60, quiz_session::question_remaining_seconds($state, $record));
+    }
+
+    public function test_reloading_does_not_reset_the_question_clock(): void {
+        set_config('quiz_time_true_false', 60, 'plagiarism_dixeo');
+        $record = $this->create_quiz_record();
+        $opened = time() - 25;
+        quiz_session::save($record, [
+            'started_at' => $opened,
+            'expires_at' => $opened + 300,
+            'current_index' => 0,
+            'reported' => [],
+            'question_started_at' => ['q1' => $opened],
+        ]);
+
+        $reloaded = author_storage::get_record((int) $record->id);
+        $state = quiz_session::load($reloaded);
+        $remaining = quiz_session::question_remaining_seconds($state, $reloaded);
+
+        $this->assertSame($opened, $state['question_started_at']['q1']);
+        $this->assertGreaterThanOrEqual(30, $remaining);
+        $this->assertLessThanOrEqual(35, $remaining);
+    }
+
+    public function test_landing_on_a_later_question_does_not_reset_earlier_start_times(): void {
+        $record = $this->create_quiz_record();
+        quiz_session::start($record);
+        $first = quiz_session::load($record);
+
+        quiz_session::record_progress($record, ['q1' => 'true'], ['q1' => 12], 1);
+        $state = quiz_session::load(author_storage::get_record((int) $record->id));
+
+        $this->assertSame($first['question_started_at']['q1'], $state['question_started_at']['q1']);
+        $this->assertArrayHasKey('q2', $state['question_started_at']);
+        $this->assertGreaterThan(0, $state['question_started_at']['q2']);
+        $this->assertSame(1, $state['current_index']);
+    }
+
     public function test_each_question_type_has_its_own_pacing_limit(): void {
         set_config('quiz_time_true_false', 15, 'plagiarism_dixeo');
         set_config('quiz_time_multiple_choice', 25, 'plagiarism_dixeo');

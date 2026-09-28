@@ -151,6 +151,7 @@ class quiz_session {
             'expires_at' => isset($state['expires_at']) ? (int) $state['expires_at'] : 0,
             'current_index' => isset($state['current_index']) ? (int) $state['current_index'] : 0,
             'reported' => isset($state['reported']) && is_array($state['reported']) ? $state['reported'] : [],
+            'question_started_at' => self::normalize_question_started_at($state['question_started_at'] ?? []),
         ];
     }
 
@@ -170,6 +171,7 @@ class quiz_session {
         $total = self::get_total_time_limit();
         $state['started_at'] = $now;
         $state['expires_at'] = $total > 0 ? $now + $total : 0;
+        $state = self::ensure_question_started($record, $state, (int) $state['current_index'], $now);
 
         self::save($record, $state);
 
@@ -202,6 +204,68 @@ class quiz_session {
         }
 
         return max(0, (int) $state['expires_at'] - time());
+    }
+
+    /**
+     * Seconds left on the question the student is currently answering.
+     *
+     * Remaining time is derived from the server timestamp recorded when they first landed on
+     * that question, so reloading the page does not give the time back.
+     *
+     * @param array $state State from load().
+     * @param \stdClass $record Authorship record, used to read the question's time limit.
+     * @return int|null Seconds remaining, or null when that question has no time limit.
+     */
+    public static function question_remaining_seconds(array $state, \stdClass $record): ?int {
+        $questions = self::get_public_questions($record);
+        $index = (int) ($state['current_index'] ?? 0);
+        $question = $questions[$index] ?? null;
+        if ($question === null) {
+            return null;
+        }
+
+        $limit = (int) ($question['timelimit'] ?? 0);
+        if ($limit <= 0) {
+            return null;
+        }
+
+        $started = (int) ($state['question_started_at'][(string) $question['id']] ?? 0);
+        if ($started <= 0) {
+            return $limit;
+        }
+
+        return max(0, $started + $limit - time());
+    }
+
+    /**
+     * Record the first time the student lands on a question, without resetting a later visit.
+     *
+     * @param \stdClass $record Authorship record.
+     * @param array $state State from load().
+     * @param int $index Question index in the quiz.
+     * @param int|null $now Unix timestamp to store, or null to use time().
+     * @return array Updated state.
+     */
+    public static function ensure_question_started(
+        \stdClass $record,
+        array $state,
+        int $index,
+        ?int $now = null
+    ): array {
+        $ids = self::get_question_ids($record);
+        $questionid = $ids[$index] ?? null;
+        if ($questionid === null) {
+            return $state;
+        }
+
+        if (!isset($state['question_started_at']) || !is_array($state['question_started_at'])) {
+            $state['question_started_at'] = [];
+        }
+        if (empty($state['question_started_at'][$questionid])) {
+            $state['question_started_at'][$questionid] = $now ?? time();
+        }
+
+        return $state;
     }
 
     /**
@@ -302,6 +366,7 @@ class quiz_session {
         if ($currentindex !== null) {
             $state['current_index'] = max(0, $currentindex);
         }
+        $state = self::ensure_question_started($record, $state, (int) $state['current_index']);
 
         $merged = array_merge(self::get_answers($record), $answers);
 
@@ -366,6 +431,28 @@ class quiz_session {
         $seconds = ($value === false || $value === null) ? 3 : (int) $value;
 
         return max(0, min($seconds, self::MAX_NEXT_BUTTON_DELAY));
+    }
+
+    /**
+     * Accept only numeric per-question start times, keyed by question id.
+     *
+     * @param mixed $raw Value from stored JSON.
+     * @return array<string, int>
+     */
+    private static function normalize_question_started_at($raw): array {
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $accepted = [];
+        foreach ($raw as $questionid => $started) {
+            if (!is_numeric($started)) {
+                continue;
+            }
+            $accepted[(string) $questionid] = (int) $started;
+        }
+
+        return $accepted;
     }
 
     /**
