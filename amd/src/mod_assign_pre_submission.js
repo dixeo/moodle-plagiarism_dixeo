@@ -57,6 +57,11 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
         if (container && container.parentNode) {
             container.parentNode.removeChild(container);
         }
+        document.querySelectorAll('.plagiarism-dixeo-review-feedback').forEach(function(el) {
+            if (el.parentNode) {
+                el.parentNode.removeChild(el);
+            }
+        });
     }
 
     /**

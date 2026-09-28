@@ -218,11 +218,11 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             'submission',
             $itemid
         );
-        if ($record === null) {
-            return '';
-        }
 
-        $html = self::get_links_badges_html($record, $context, self::get_activity_config($cmid), $isteacher);
+        $html = self::format_presubmission_feedback($userid, $itemid, $context);
+        if ($record !== null) {
+            $html .= self::get_links_badges_html($record, $context, self::get_activity_config($cmid), $isteacher);
+        }
         if ($html === '') {
             return '';
         }
@@ -348,7 +348,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             return '';
         }
 
-        // Panels are only collapsible when there is more than one to choose between.
+        // Panels with feedback start open so the explanation is visible; they can still be collapsed.
         if (count($panels) > 1) {
             foreach ($panels as $index => $panel) {
                 if ($panel['hasbody']) {
@@ -444,6 +444,40 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         }
 
         return format_text($explanation, FORMAT_PLAIN, ['context' => $context]);
+    }
+
+    /**
+     * Draft coaching feedback stored from Analyze, shown beside the submission.
+     *
+     * @param int $userid Student the feedback belongs to.
+     * @param int $itemid Assign submission id.
+     * @param context_module $context Activity context.
+     * @return string HTML fragment, or an empty string when nothing is stored.
+     */
+    protected static function format_presubmission_feedback(int $userid, int $itemid, context_module $context): string {
+        $record = \plagiarism_dixeo\feedback\presubmission_feedback_storage::get_by_context(
+            $userid,
+            'mod_assign',
+            'submission',
+            $itemid
+        );
+        $feedback = trim((string) ($record->feedback ?? ''));
+        if ($feedback === '') {
+            return '';
+        }
+
+        $clean = format_text($feedback, FORMAT_HTML, [
+            'para' => true,
+            'filter' => false,
+            'context' => $context,
+        ]);
+        if (trim($clean) === '') {
+            return '';
+        }
+
+        return html_writer::div($clean, 'alert alert-info alert-block plagiarism-dixeo-review-feedback mt-2', [
+            'role' => 'alert',
+        ]);
     }
 
     /**

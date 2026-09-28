@@ -56,12 +56,14 @@ final class authorship_persistence_adapter_test extends \advanced_testcase {
             'submission',
             42,
             55.5,
-            $quiz
+            $quiz,
+            'Matches the student voice.'
         );
 
         $this->assertNotNull($created);
         $this->assertGreaterThan(0, (int) $created->id);
         $this->assertEquals(55.5, (float) $created->initial_confidence);
+        $this->assertSame('Matches the student voice.', $created->initial_explanation);
         $this->assertNull($created->final_confidence);
         $decoded = json_decode($created->quiz_data, true);
         $this->assertSame('q0', $decoded['questions'][0]['id']);
@@ -107,12 +109,18 @@ final class authorship_persistence_adapter_test extends \advanced_testcase {
             (int) $created->id,
             ['q0' => '1'],
             82.25,
-            75.0
+            75.0,
+            'Final score after the quiz.',
+            'Answered most questions well.',
+            ['Clear answer.']
         );
 
         $this->assertNotNull($updated);
         $this->assertEquals(82.25, (float) $updated->final_confidence);
         $this->assertEquals(75.0, (float) $updated->quiz_grade);
+        $this->assertSame('Final score after the quiz.', $updated->final_explanation);
+        $this->assertSame('Answered most questions well.', $updated->quiz_explanation);
+        $this->assertSame(['Clear answer.'], json_decode($updated->quiz_question_feedbacks, true));
         $responses = json_decode($updated->quiz_responses, true);
         $this->assertSame(['q0' => '1'], $responses);
 

@@ -119,55 +119,52 @@ class check_authorship extends external_api {
             }
 
             $score = (float) $mapped['confidence'];
-            if (!authorship::is_quiz_required($score)) {
-                return self::result_payload(
-                    $score,
-                    0,
-                    '',
-                    '',
-                    'completed',
+            $explanation = (string) ($mapped['explanation'] ?? '');
+            $quizdata = null;
+            $lastjobid = $confidenceop->jobid;
+
+            if (authorship::is_quiz_required($score)) {
+                $counts = authorship::get_question_counts();
+                $quizop = $service->submit_authorship_and_wait(
                     $courseid,
-                    $confidenceop->jobid
+                    (int) $cm->id,
+                    (int) $USER->id,
+                    assign_ux_service::MODE_QUIZ,
+                    [
+                        'trueFalseCount' => $counts['true_false'],
+                        'multipleChoiceCount' => $counts['multiple_choice'],
+                        'openCount' => $counts['open'],
+                        'initialConfidence' => $score,
+                    ]
                 );
+                if (!$quizop->completed) {
+                    $msg = get_string('assign_ux_result_missing', 'local_dixeo');
+                    return self::result_payload($score, 0, '', $msg, 'failed', $courseid, $quizop->jobid);
+                }
+
+                $quizmapped = $service->map_authorship_result(assign_ux_service::MODE_QUIZ, $quizop->result);
+                if (isset($quizmapped['error'])) {
+                    return self::result_payload($score, 0, '', $quizmapped['error'], 'failed', $courseid, $quizop->jobid);
+                }
+
+                $quizdata = ['questions' => $quizmapped['questions']];
+                $lastjobid = $quizop->jobid;
             }
 
-            $counts = authorship::get_question_counts();
-            $quizop = $service->submit_authorship_and_wait(
-                $courseid,
-                (int) $cm->id,
-                (int) $USER->id,
-                assign_ux_service::MODE_QUIZ,
-                [
-                    'trueFalseCount' => $counts['true_false'],
-                    'multipleChoiceCount' => $counts['multiple_choice'],
-                    'openCount' => $counts['open'],
-                    'initialConfidence' => $score,
-                ]
-            );
-            if (!$quizop->completed) {
-                $msg = get_string('assign_ux_result_missing', 'local_dixeo');
-                return self::result_payload($score, 0, '', $msg, 'failed', $courseid, $quizop->jobid);
-            }
-
-            $quizmapped = $service->map_authorship_result(assign_ux_service::MODE_QUIZ, $quizop->result);
-            if (isset($quizmapped['error'])) {
-                return self::result_payload($score, 0, '', $quizmapped['error'], 'failed', $courseid, $quizop->jobid);
-            }
-
-            $quizdata = ['questions' => $quizmapped['questions']];
             $record = null;
             if ($itemid > 0) {
                 $record = $service->apply_authorship_confidence(
                     (int) $USER->id,
                     $itemid,
                     $score,
-                    $quizdata
+                    $quizdata,
+                    $explanation
                 );
             }
 
             $quizhtml = '';
             $recordid = 0;
-            if ($record) {
+            if ($record && $quizdata) {
                 $recordid = (int) $record->id;
                 $quizhtml = authorship::render_quiz_form($record);
             }
@@ -179,7 +176,7 @@ class check_authorship extends external_api {
                 '',
                 'completed',
                 $courseid,
-                $quizop->jobid
+                $lastjobid
             );
         } catch (\required_capability_exception | \require_login_exception $e) {
             throw $e;
