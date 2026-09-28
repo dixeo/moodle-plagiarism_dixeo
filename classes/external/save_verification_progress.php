@@ -84,7 +84,7 @@ class save_verification_progress extends external_api {
 
         $state = quiz_session::load($record);
         if (quiz_session::is_expired($state)) {
-            return verification_access::timing_payload($state) + ['saved' => false];
+            return verification_access::timing_payload($state, $record) + ['saved' => false];
         }
 
         $questionids = quiz_session::get_question_ids($record);
@@ -99,7 +99,7 @@ class save_verification_progress extends external_api {
 
         $state = quiz_session::record_progress($record, $answers, $reported, $params['current_index']);
 
-        return verification_access::timing_payload($state) + ['saved' => true];
+        return verification_access::timing_payload($state, $record) + ['saved' => true];
     }
 
     /**

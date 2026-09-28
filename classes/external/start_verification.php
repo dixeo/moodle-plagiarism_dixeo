@@ -76,7 +76,7 @@ class start_verification extends external_api {
             ])->trigger();
         }
 
-        return verification_access::timing_payload($state);
+        return verification_access::timing_payload($state, $record);
     }
 
     /**

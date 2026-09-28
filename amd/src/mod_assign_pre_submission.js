@@ -330,7 +330,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 }
                 return null;
             }
-            showQuizModal(form, (data.quiz_html || ''));
+            showQuizModal(form, recordId);
             return null;
         }).catch(function(err) {
             hideLoadingModal();
@@ -380,64 +380,163 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
         });
     }
 
+    var QUESTION_TYPE_TRUE_FALSE = 'true_false';
+    var QUESTION_TYPE_MULTIPLE_CHOICE = 'multiple_choice';
+    var LOCK_TO_NEXT_DELAY_MS = 2000;
+    var ICON_CLOCK = '<span class="plagiarism-dixeo-icon" aria-hidden="true"><i class="fa fa-clock-o"></i></span>';
+    var ICON_QUESTION = '<span class="plagiarism-dixeo-icon" aria-hidden="true"><i class="fa fa-list-alt"></i></span>';
+
     /**
-     * Check if all quiz inputs in the container have a value (for enabling Submit).
+     * Escape text for insertion into HTML.
      *
-     * @param {HTMLElement} container
-     * @returns {boolean}
+     * @param {string} value Raw text.
+     * @returns {string}
      */
-    function allQuizQuestionsAnswered(container) {
-        var sel = 'input[name^="authorship_q["], select[name^="authorship_q["], ' +
-            'textarea[name^="authorship_q["]';
-        var inputs = container.querySelectorAll(sel);
-        var i;
-        for (i = 0; i < inputs.length; i++) {
-            var el = inputs[i];
-            if (el.type === 'radio' || el.type === 'checkbox') {
-                var name = el.name;
-                var checked = container.querySelector('input[name="' + name.replace(/[[\]]/g, '\\$&') + '"]:checked');
-                if (!checked) {
-                    return false;
-                }
-            } else if (!el.value || !el.value.trim()) {
-                return false;
-            }
-        }
-        return true;
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
     /**
-     * Collect record_id and responses from the quiz form fragment.
+     * Format a number of seconds as mm:ss.
      *
-     * @param {HTMLElement} container
-     * @returns {{recordId: number, responses: Object}}
+     * @param {number|null} seconds Seconds remaining.
+     * @returns {string}
      */
-    function collectQuizResponses(container) {
-        var recordInput = container.querySelector('input[name="authorship_record_id"]');
-        var recordId = (recordInput && recordInput.value) ? parseInt(recordInput.value, 10) : 0;
-        var responses = {};
-        var sel = 'input[name^="authorship_q["], select[name^="authorship_q["], ' +
-            'textarea[name^="authorship_q["]';
-        var inputs = container.querySelectorAll(sel);
-        var i, name, match;
-        for (i = 0; i < inputs.length; i++) {
-            var el = inputs[i];
-            name = el.name;
-            if (el.type === 'radio' || el.type === 'checkbox') {
-                if (el.checked) {
-                    match = name.match(/authorship_q\[([^\]]+)\]/);
-                    if (match) {
-                        responses[match[1]] = el.value;
-                    }
-                }
-            } else {
-                match = name.match(/authorship_q\[([^\]]+)\]/);
-                if (match) {
-                    responses[match[1]] = el.value;
-                }
+    function formatMinutesSeconds(seconds) {
+        if (seconds === null || seconds === undefined) {
+            return '';
+        }
+        var safe = Math.max(0, Math.floor(seconds));
+        var minutes = Math.floor(safe / 60);
+        return minutes + ':' + String(safe % 60).padStart(2, '0');
+    }
+
+    /**
+     * Question id used in form names and saved answers.
+     *
+     * @param {object} question Question from get_verification_quiz.
+     * @param {number} index Index in the quiz.
+     * @returns {string}
+     */
+    function questionId(question, index) {
+        return String((question && question.id) || ('q' + index));
+    }
+
+    /**
+     * Whether every question has a non-empty saved answer.
+     *
+     * @param {object} ctx Pager state.
+     * @returns {boolean}
+     */
+    function allQuestionsAnswered(ctx) {
+        var i, q, id, value;
+        for (i = 0; i < ctx.questions.length; i++) {
+            q = ctx.questions[i];
+            id = questionId(q, i);
+            value = ctx.responses[id];
+            if (value === undefined || value === null || String(value).trim() === '') {
+                return false;
             }
         }
-        return {recordId: recordId, responses: responses};
+        return ctx.questions.length > 0;
+    }
+
+    /**
+     * Read the visible question's answer from the DOM into ctx.responses.
+     *
+     * @param {HTMLElement} bodyEl Quiz body.
+     * @param {object} ctx Pager state.
+     */
+    function captureResponseFromBody(bodyEl, ctx) {
+        var q = ctx.questions[ctx.currentIndex];
+        if (!q) {
+            return;
+        }
+        var qId = questionId(q, ctx.currentIndex);
+        var input = bodyEl.querySelector('input[name="authorship_q[' + qId + ']"]:checked');
+        if (input) {
+            ctx.responses[qId] = input.value;
+            return;
+        }
+        var sel = bodyEl.querySelector('select[name="authorship_q[' + qId + ']"]');
+        if (sel) {
+            ctx.responses[qId] = sel.value || '';
+            return;
+        }
+        var textarea = bodyEl.querySelector('textarea[name="authorship_q[' + qId + ']"]');
+        if (textarea) {
+            ctx.responses[qId] = textarea.value || '';
+        }
+    }
+
+    /**
+     * HTML for one true/false, multiple-choice or open question.
+     *
+     * @param {object} q Question.
+     * @param {string} qId Question id.
+     * @param {string} currentValue Saved answer, if any.
+     * @param {object} uiStrings Localized labels.
+     * @param {number} questionNumber 1-based index shown to the student.
+     * @returns {string}
+     */
+    function renderOneQuestionHtml(q, qId, currentValue, uiStrings, questionNumber) {
+        var name = 'authorship_q[' + qId + ']';
+        var numberedText = (questionNumber ? questionNumber + '. ' : '') + escapeHtml(q.text || '');
+        var html = '<div class="form-group authorship-question"><p class="authorship-question-text">' +
+            numberedText + '</p>';
+        if (q.type === QUESTION_TYPE_TRUE_FALSE) {
+            var valTrue = (currentValue === '1' || currentValue === 'true' || currentValue === true);
+            var valFalse = (currentValue === '0' || currentValue === 'false' || currentValue === false);
+            html += '<div class="authorship-options">';
+            html += '<label class="d-block"><input type="radio" name="' + name + '" value="1"' +
+                (valTrue ? ' checked' : '') + '> ' + escapeHtml(uiStrings.trueLabel) + '</label>';
+            html += '<label class="d-block"><input type="radio" name="' + name + '" value="0"' +
+                (valFalse ? ' checked' : '') + '> ' + escapeHtml(uiStrings.falseLabel) + '</label>';
+            html += '</div>';
+        } else if (q.type === QUESTION_TYPE_MULTIPLE_CHOICE && q.options && q.options.length) {
+            html += '<div class="authorship-options">';
+            q.options.forEach(function(opt) {
+                var v = String((opt.value !== undefined ? opt.value : opt.text) || '');
+                var label = String((opt.text !== undefined ? opt.text : opt.value) || v);
+                var checked = String(currentValue) === v ? ' checked' : '';
+                html += '<label class="d-block"><input type="radio" name="' + name + '" value="' +
+                    escapeHtml(v) + '"' + checked + '> ' + escapeHtml(label) + '</label>';
+            });
+            html += '</div>';
+        } else {
+            html += '<textarea name="' + name + '" class="form-control" rows="4">' +
+                escapeHtml(currentValue || '') + '</textarea>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    /**
+     * Disable inputs and show the locked overlay on the visible question.
+     *
+     * @param {HTMLElement} bodyEl Quiz body.
+     * @param {object} ctx Pager state.
+     */
+    function lockCurrentQuestionInputs(bodyEl, ctx) {
+        var container = bodyEl.querySelector('.plagiarism-dixeo-question-content');
+        if (!container || container.querySelector('.plagiarism-dixeo-question-locked-overlay')) {
+            return;
+        }
+        container.querySelectorAll('input, select, textarea').forEach(function(el) {
+            el.disabled = true;
+        });
+        var overlay = document.createElement('div');
+        overlay.className = 'plagiarism-dixeo-question-locked-overlay';
+        overlay.setAttribute('title', ctx.strings.questionLockedTooltip);
+        overlay.setAttribute('aria-label', ctx.strings.questionLockedTooltip);
+        overlay.innerHTML = '<span class="plagiarism-dixeo-question-locked-icon" aria-hidden="true">' +
+            '<i class="fa fa-lock"></i></span><span class="plagiarism-dixeo-question-locked-text">' +
+            escapeHtml(ctx.strings.questionLocked) + '</span>';
+        container.appendChild(overlay);
     }
 
     /**
@@ -496,54 +595,32 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
     }
 
     /**
-     * Start the server-clocked countdown for a quiz, restoring any answers saved earlier.
-     *
-     * @param {number} recordId Authorship record id.
-     * @param {HTMLElement} body Element holding the quiz inputs.
-     * @param {HTMLElement} display Element the countdown is written into.
-     * @param {Function} onExpire Called when the server reports the quiz has closed.
-     * @returns {object|null} The timer, or null when the quiz has no usable record id.
-     */
-    function startQuizTimer(recordId, body, display, onExpire) {
-        if (!recordId || recordId <= 0) {
-            return null;
-        }
-        var Timer = QuizTimer.default || QuizTimer;
-        var timer = new Timer({
-            recordId: recordId,
-            body: body,
-            display: display,
-            collect: function() {
-                return collectQuizResponses(body).responses;
-            },
-            onExpire: onExpire
-        });
-        timer.start().catch(function(err) {
-            Notification.exception(err);
-        });
-        return timer;
-    }
-
-    /**
-     * Show the authorship quiz modal: quiz HTML in body, footer with confirmation checkbox, Cancel, Submit.
-     * Submit enabled only when all questions answered and checkbox checked. On Submit: verify_authorship then form.submit().
+     * Show the authorship quiz as one question at a time, with Prev/Next and dual timers.
      *
      * @param {HTMLFormElement} form Assign form to submit after verification.
-     * @param {string} quizHtml HTML fragment containing the quiz form (with authorship_record_id and authorship_q[id]).
+     * @param {number} recordId Authorship record id.
      */
-    function showQuizModal(form, quizHtml) {
-        var modalTitleStr = 'authorship_quiz_modal_title';
-        var confirmStr = 'authorship_confirm_statement';
-        var confirmSubmitStr = 'authorship_confirm_and_submit';
-        var cancelStr = 'authorship_cancel';
+    function showQuizModal(form, recordId) {
+        if (!recordId || recordId <= 0) {
+            notifyMissingRecord();
+            return;
+        }
 
         Promise.all([
-            Str.get_string(modalTitleStr, 'plagiarism_dixeo'),
-            Str.get_string(confirmStr, 'plagiarism_dixeo'),
-            Str.get_string(confirmSubmitStr, 'plagiarism_dixeo'),
-            Str.get_string(cancelStr, 'plagiarism_dixeo'),
+            Str.get_string('authorship_quiz_modal_title', 'plagiarism_dixeo'),
+            Str.get_string('authorship_confirm_statement', 'plagiarism_dixeo'),
+            Str.get_string('authorship_confirm_and_submit', 'plagiarism_dixeo'),
+            Str.get_string('authorship_cancel', 'plagiarism_dixeo'),
             Str.get_string('close', 'plagiarism_dixeo'),
-            Str.get_string('authorship_quiz_load_error', 'plagiarism_dixeo')
+            Str.get_string('authorship_quiz_load_error', 'plagiarism_dixeo'),
+            Str.get_string('verification_previous', 'plagiarism_dixeo'),
+            Str.get_string('verification_next', 'plagiarism_dixeo'),
+            Str.get_string('timer_test_tooltip', 'plagiarism_dixeo'),
+            Str.get_string('timer_question_tooltip', 'plagiarism_dixeo'),
+            Str.get_string('question_locked', 'plagiarism_dixeo'),
+            Str.get_string('question_locked_tooltip', 'plagiarism_dixeo'),
+            Str.get_string('true', 'plagiarism_dixeo'),
+            Str.get_string('false', 'plagiarism_dixeo')
         ]).then(function(labels) {
             var title = labels[0];
             var confirmLabel = labels[1];
@@ -555,18 +632,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             var existing = document.getElementById(QUIZ_MODAL_ID);
             if (existing && existing.parentNode) {
                 existing.parentNode.removeChild(existing);
-            }
-
-            var parser = new DOMParser();
-            var parsed = parser.parseFromString(quizHtml.trim(), 'text/html');
-            var quizFragment = parsed.body.firstElementChild;
-            if (!quizFragment || !quizFragment.querySelector) {
-                Notification.addNotification({message: loadError, type: 'error'});
-                return null;
-            }
-            var actionsDiv = quizFragment.querySelector('.authorship-quiz-actions');
-            if (actionsDiv && actionsDiv.parentNode) {
-                actionsDiv.parentNode.removeChild(actionsDiv);
             }
 
             var modal = document.createElement('div');
@@ -586,10 +651,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             var titleEl = document.createElement('h5');
             titleEl.className = 'modal-title';
             titleEl.textContent = title;
-            var countdown = document.createElement('span');
-            countdown.className = 'plagiarism-dixeo-quiz-countdown ml-auto mr-3';
-            countdown.setAttribute('role', 'timer');
-            countdown.setAttribute('aria-live', 'polite');
+            var counterEl = document.createElement('span');
+            counterEl.className = 'plagiarism-dixeo-verification-counter ml-3';
             var closeBtn = document.createElement('button');
             closeBtn.type = 'button';
             closeBtn.className = 'close';
@@ -597,34 +660,14 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             closeBtn.setAttribute('aria-label', closeLabel);
             closeBtn.innerHTML = '<span aria-hidden="true">&times;</span>';
             header.appendChild(titleEl);
-            header.appendChild(countdown);
+            header.appendChild(counterEl);
             header.appendChild(closeBtn);
 
             var body = document.createElement('div');
             body.className = 'modal-body plagiarism-dixeo-quiz-body';
-            body.appendChild(quizFragment);
 
             var footer = document.createElement('div');
-            footer.className = 'modal-footer';
-            var confirmLabelEl = document.createElement('label');
-            confirmLabelEl.className = 'mr-auto mb-0';
-            var confirmCb = document.createElement('input');
-            confirmCb.type = 'checkbox';
-            confirmCb.className = 'plagiarism-dixeo-confirm-checkbox';
-            confirmLabelEl.appendChild(confirmCb);
-            confirmLabelEl.appendChild(document.createTextNode(' ' + confirmLabel));
-            var cancelBtn = document.createElement('button');
-            cancelBtn.type = 'button';
-            cancelBtn.className = 'btn btn-secondary plagiarism-dixeo-quiz-cancel';
-            cancelBtn.textContent = cancelLabel;
-            var submitBtn = document.createElement('button');
-            submitBtn.type = 'button';
-            submitBtn.className = 'btn btn-primary plagiarism-dixeo-quiz-submit';
-            submitBtn.disabled = true;
-            submitBtn.textContent = submitLabel;
-            footer.appendChild(confirmLabelEl);
-            footer.appendChild(cancelBtn);
-            footer.appendChild(submitBtn);
+            footer.className = 'modal-footer plagiarism-dixeo-verification-footer';
 
             content.appendChild(header);
             content.appendChild(body);
@@ -634,61 +677,316 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             document.body.appendChild(modal);
 
             var $modal = $(modal);
+            var ctx = {
+                recordId: recordId,
+                questions: [],
+                responses: {},
+                currentIndex: 0,
+                visited: {},
+                allowBackwards: false,
+                nextDelaySec: 0,
+                nextUnlockAt: 0,
+                confirmed: false,
+                submitting: false,
+                lockToNextTimeout: null,
+                strings: {
+                    previous: labels[6],
+                    next: labels[7],
+                    submit: submitLabel,
+                    confirm: confirmLabel,
+                    cancel: cancelLabel,
+                    timerTestTooltip: labels[8],
+                    timerQuestionTooltip: labels[9],
+                    questionLocked: labels[10],
+                    questionLockedTooltip: labels[11],
+                    trueLabel: labels[12],
+                    falseLabel: labels[13]
+                }
+            };
+            var timer = null;
+            var confirmCb = null;
+            var submitBtn = null;
 
             /**
-             * Enable or disable the quiz submit button based on answers and confirmation checkbox.
+             * Enable Submit once every question has an answer and the student has confirmed.
              */
             function updateSubmitState() {
-                var allAnswered = allQuizQuestionsAnswered(body);
-                var confirmed = confirmCb && confirmCb.checked;
-                submitBtn.disabled = !(allAnswered && confirmed);
+                if (!submitBtn || ctx.submitting) {
+                    return;
+                }
+                submitBtn.disabled = !(allQuestionsAnswered(ctx) && confirmCb && confirmCb.checked);
             }
 
-            body.addEventListener('change', updateSubmitState);
-            body.addEventListener('input', updateSubmitState);
-            confirmCb.addEventListener('change', updateSubmitState);
+            /**
+             * Submit the stored answers through verify_authorship.
+             */
+            function submitQuiz() {
+                if (ctx.submitting) {
+                    return;
+                }
+                captureResponseFromBody(body, ctx);
+                if (ctx.recordId <= 0) {
+                    notifyMissingRecord();
+                    return;
+                }
+                ctx.submitting = true;
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                }
+                if (timer) {
+                    timer.stop();
+                }
+                if (ctx.lockToNextTimeout) {
+                    clearTimeout(ctx.lockToNextTimeout);
+                    ctx.lockToNextTimeout = null;
+                }
+                verifyAndSubmit(form, $modal, submitBtn || closeBtn, {
+                    recordId: ctx.recordId,
+                    responses: ctx.responses
+                });
+            }
 
-            cancelBtn.addEventListener('click', function() {
-                $modal.modal('hide');
-            });
+            /**
+             * Move to another question, persisting the current answer first.
+             *
+             * @param {number} nextIndex Index to show.
+             * @param {boolean} fromLock When true, apply the next-button delay as after a timeout.
+             */
+            function goToQuestion(nextIndex, fromLock) {
+                if (nextIndex < 0 || nextIndex >= ctx.questions.length) {
+                    return;
+                }
+                captureResponseFromBody(body, ctx);
+                if (fromLock || (!ctx.allowBackwards && nextIndex > ctx.currentIndex)) {
+                    ctx.nextUnlockAt = Math.floor(Date.now() / 1000) + ctx.nextDelaySec;
+                }
+                ctx.currentIndex = nextIndex;
+                ctx.visited[ctx.currentIndex] = true;
+                if (timer) {
+                    timer.sync().then(function() {
+                        renderQuestionScreen();
+                    });
+                    return;
+                }
+                renderQuestionScreen();
+            }
+
+            /**
+             * Draw the visible question and rebuild the footer controls.
+             */
+            function renderQuestionScreen() {
+                var q = ctx.questions[ctx.currentIndex];
+                if (!q) {
+                    return;
+                }
+                var total = ctx.questions.length;
+                var current = ctx.currentIndex + 1;
+                var qId = questionId(q, ctx.currentIndex);
+                counterEl.textContent = current + '/' + total;
+
+                body.innerHTML = '<div class="plagiarism-dixeo-question-content">' +
+                    renderOneQuestionHtml(q, qId, ctx.responses[qId], ctx.strings, current) + '</div>';
+                if (timer && timer.questionRemaining === 0) {
+                    lockCurrentQuestionInputs(body, ctx);
+                }
+
+                var prevDisabled = !ctx.allowBackwards || ctx.currentIndex === 0;
+                var showNext = ctx.currentIndex < ctx.questions.length - 1;
+                var nowSec = Math.floor(Date.now() / 1000);
+                var nextDisabled = showNext && !ctx.allowBackwards && ctx.nextUnlockAt > nowSec;
+
+                var leftBtns = '<button type="button" class="btn btn-secondary plagiarism-dixeo-verification-prev"' +
+                    (prevDisabled ? ' disabled' : '') + '>' + escapeHtml(ctx.strings.previous) + '</button>';
+                if (showNext) {
+                    leftBtns += ' <button type="button" class="btn btn-primary plagiarism-dixeo-verification-next"' +
+                        (nextDisabled ? ' disabled' : '') + '>' + escapeHtml(ctx.strings.next) + '</button>';
+                }
+
+                var totalDisplay = (timer && timer.remaining !== null) ? 'inline-flex' : 'none';
+                var qDisplay = (timer && timer.questionRemaining !== null) ? 'inline-flex' : 'none';
+                var totalValue = (timer && timer.remaining !== null) ? formatMinutesSeconds(timer.remaining) : '';
+                var qValue = (timer && timer.questionRemaining !== null) ?
+                    formatMinutesSeconds(timer.questionRemaining) : '';
+
+                footer.innerHTML =
+                    '<div class="plagiarism-dixeo-verification-footer__left">' + leftBtns + '</div>' +
+                    '<div class="plagiarism-dixeo-verification-footer__right">' +
+                    '<label class="mb-0 plagiarism-dixeo-confirm-label">' +
+                    '<input type="checkbox" class="plagiarism-dixeo-confirm-checkbox"> ' +
+                    escapeHtml(ctx.strings.confirm) + '</label>' +
+                    '<span class="plagiarism-dixeo-footer-total-timer" title="' +
+                    escapeHtml(ctx.strings.timerTestTooltip) + '" style="display:' + totalDisplay + '">' +
+                    ICON_CLOCK + ' <span class="plagiarism-dixeo-timer-value plagiarism-dixeo-quiz-countdown">' +
+                    totalValue + '</span></span>' +
+                    ' <span class="plagiarism-dixeo-footer-question-timer" title="' +
+                    escapeHtml(ctx.strings.timerQuestionTooltip) + '" style="display:' + qDisplay + '">' +
+                    ICON_QUESTION + ' <span class="plagiarism-dixeo-timer-value">' + qValue + '</span></span>' +
+                    ' <button type="button" class="btn btn-secondary plagiarism-dixeo-quiz-cancel">' +
+                    escapeHtml(ctx.strings.cancel) + '</button>' +
+                    ' <button type="button" class="btn btn-success plagiarism-dixeo-verification-submit" disabled>' +
+                    escapeHtml(ctx.strings.submit) + '</button>' +
+                    '</div>';
+
+                confirmCb = footer.querySelector('.plagiarism-dixeo-confirm-checkbox');
+                submitBtn = footer.querySelector('.plagiarism-dixeo-verification-submit');
+                var prevBtnEl = footer.querySelector('.plagiarism-dixeo-verification-prev');
+                var nextBtnEl = footer.querySelector('.plagiarism-dixeo-verification-next');
+                var cancelBtn = footer.querySelector('.plagiarism-dixeo-quiz-cancel');
+                var totalDisplayEl = footer.querySelector('.plagiarism-dixeo-quiz-countdown');
+                var questionDisplayEl = footer.querySelector(
+                    '.plagiarism-dixeo-footer-question-timer .plagiarism-dixeo-timer-value'
+                );
+
+                if (timer) {
+                    timer.display = totalDisplayEl;
+                    timer.questionDisplay = questionDisplayEl;
+                    timer.render();
+                }
+
+                if (prevBtnEl) {
+                    prevBtnEl.addEventListener('click', function() {
+                        if (this.disabled || ctx.currentIndex <= 0) {
+                            return;
+                        }
+                        goToQuestion(ctx.currentIndex - 1, false);
+                    });
+                }
+                if (nextBtnEl) {
+                    nextBtnEl.addEventListener('click', function() {
+                        if (this.disabled || ctx.currentIndex >= ctx.questions.length - 1) {
+                            return;
+                        }
+                        goToQuestion(ctx.currentIndex + 1, false);
+                    });
+                    if (nextDisabled) {
+                        var unlockAt = ctx.nextUnlockAt;
+                        var check = setInterval(function() {
+                            if (Math.floor(Date.now() / 1000) >= unlockAt) {
+                                nextBtnEl.disabled = false;
+                                clearInterval(check);
+                            }
+                        }, 500);
+                    }
+                }
+                if (cancelBtn) {
+                    cancelBtn.addEventListener('click', function() {
+                        $modal.modal('hide');
+                    });
+                }
+                if (submitBtn) {
+                    submitBtn.addEventListener('click', function() {
+                        if (this.disabled) {
+                            return;
+                        }
+                        submitQuiz();
+                    });
+                }
+                if (confirmCb) {
+                    confirmCb.checked = !!ctx.confirmed;
+                    confirmCb.addEventListener('change', function() {
+                        ctx.confirmed = confirmCb.checked;
+                        updateSubmitState();
+                    });
+                }
+                updateSubmitState();
+            }
+
+            /**
+             * Lock the current question, then auto-advance when it is not the last.
+             */
+            function onQuestionExpire() {
+                lockCurrentQuestionInputs(body, ctx);
+                if (ctx.allowBackwards || ctx.currentIndex >= ctx.questions.length - 1) {
+                    return;
+                }
+                if (ctx.lockToNextTimeout) {
+                    clearTimeout(ctx.lockToNextTimeout);
+                }
+                ctx.lockToNextTimeout = setTimeout(function() {
+                    ctx.lockToNextTimeout = null;
+                    goToQuestion(ctx.currentIndex + 1, true);
+                }, LOCK_TO_NEXT_DELAY_MS);
+            }
+
             $modal.on('hidden.bs.modal', function() {
+                if (timer) {
+                    timer.stop();
+                }
+                if (ctx.lockToNextTimeout) {
+                    clearTimeout(ctx.lockToNextTimeout);
+                }
                 if (modal.parentNode) {
                     modal.parentNode.removeChild(modal);
                 }
             });
 
-            submitBtn.addEventListener('click', function() {
-                if (submitBtn.disabled) {
-                    return;
-                }
-                var collected = collectQuizResponses(body);
-                if (collected.recordId <= 0) {
-                    notifyMissingRecord();
-                    submitBtn.disabled = false;
-                    return;
-                }
-                submitBtn.disabled = true;
-                if (timer) {
-                    timer.stop();
-                }
-                verifyAndSubmit(form, $modal, submitBtn, collected);
-            });
-
             $modal.modal({backdrop: 'static', keyboard: false});
 
-            var collected = collectQuizResponses(body);
-            var timer = startQuizTimer(collected.recordId, body, countdown, function() {
-                // The server has closed the quiz, so whatever has been answered is submitted as it stands.
-                body.querySelectorAll('input, select, textarea').forEach(function(input) {
-                    input.disabled = true;
-                });
-                submitBtn.disabled = true;
-                verifyAndSubmit(form, $modal, submitBtn, collectQuizResponses(body));
+            body.addEventListener('change', function() {
+                captureResponseFromBody(body, ctx);
+                updateSubmitState();
             });
-            $modal.on('hidden.bs.modal', function() {
-                if (timer) {
-                    timer.stop();
+            body.addEventListener('input', function() {
+                captureResponseFromBody(body, ctx);
+                updateSubmitState();
+            });
+
+            var Timer = QuizTimer.default || QuizTimer;
+            timer = new Timer({
+                recordId: recordId,
+                body: body,
+                collect: function() {
+                    captureResponseFromBody(body, ctx);
+                    return ctx.responses;
+                },
+                getCurrentIndex: function() {
+                    return ctx.currentIndex;
+                },
+                onExpire: function() {
+                    body.querySelectorAll('input, select, textarea').forEach(function(input) {
+                        input.disabled = true;
+                    });
+                    lockCurrentQuestionInputs(body, ctx);
+                    submitQuiz();
+                },
+                onQuestionExpire: onQuestionExpire,
+                onState: function(state) {
+                    if (typeof state.allow_backwards === 'boolean') {
+                        ctx.allowBackwards = state.allow_backwards;
+                    }
+                    if (typeof state.next_button_delay === 'number') {
+                        ctx.nextDelaySec = state.next_button_delay;
+                    }
                 }
+            });
+
+            timer.start().then(function(quiz) {
+                var questions;
+                try {
+                    questions = JSON.parse(quiz.questions || '[]');
+                } catch (e) {
+                    questions = [];
+                }
+                if (!questions.length) {
+                    Notification.addNotification({message: loadError, type: 'error'});
+                    $modal.modal('hide');
+                    return;
+                }
+                var answers;
+                try {
+                    answers = JSON.parse(quiz.answers || '{}');
+                } catch (err) {
+                    answers = {};
+                }
+                ctx.questions = questions;
+                ctx.responses = answers && typeof answers === 'object' ? answers : {};
+                ctx.currentIndex = Math.max(0, Math.min(questions.length - 1, quiz.current_index || 0));
+                ctx.allowBackwards = !!quiz.allow_backwards;
+                ctx.nextDelaySec = quiz.next_button_delay || 0;
+                ctx.visited[ctx.currentIndex] = true;
+                renderQuestionScreen();
+            }).catch(function(err) {
+                Notification.exception(err);
             });
             return null;
         }).catch(function(err) {

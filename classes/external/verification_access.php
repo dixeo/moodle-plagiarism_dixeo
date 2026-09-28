@@ -66,15 +66,22 @@ class verification_access {
      * Build the timing fields every verification endpoint returns.
      *
      * @param array $state Timing state from quiz_session::load().
+     * @param \stdClass|null $record Authorship record, used for per-question remaining time.
      * @return array
      */
-    public static function timing_payload(array $state): array {
+    public static function timing_payload(array $state, ?\stdClass $record = null): array {
         $remaining = quiz_session::remaining_seconds($state);
+        $questionremaining = -1;
+        if ($record !== null) {
+            $qremaining = quiz_session::question_remaining_seconds($state, $record);
+            $questionremaining = $qremaining === null ? -1 : $qremaining;
+        }
 
         return [
             'started_at' => (int) $state['started_at'],
             'expires_at' => (int) $state['expires_at'],
             'remaining' => $remaining ?? -1,
+            'question_remaining' => $questionremaining,
             'expired' => quiz_session::is_expired($state),
             'current_index' => (int) $state['current_index'],
             'allow_backwards' => quiz_session::allows_backwards_navigation(),
@@ -93,6 +100,10 @@ class verification_access {
             'started_at' => new external_value(PARAM_INT, 'When the quiz clock started, as a unix timestamp.'),
             'expires_at' => new external_value(PARAM_INT, 'When the quiz closes, or 0 when there is no limit.'),
             'remaining' => new external_value(PARAM_INT, 'Seconds left, or -1 when there is no limit.'),
+            'question_remaining' => new external_value(
+                PARAM_INT,
+                'Seconds left on the current question, or -1 when there is no limit.'
+            ),
             'expired' => new external_value(PARAM_BOOL, 'Whether the quiz has closed.'),
             'current_index' => new external_value(PARAM_INT, 'Question the student had reached.'),
             'allow_backwards' => new external_value(PARAM_BOOL, 'Whether earlier questions can be revisited.'),
