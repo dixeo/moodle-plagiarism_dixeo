@@ -167,10 +167,10 @@
 }
 
 /* Verification modal: question footer (left: Prev/Next, right: timers + Submit). */
-.plagiarism-dixeo-verification-footer {
+.modal-footer.plagiarism-dixeo-verification-footer {
     display: flex;
     flex-wrap: wrap;
-    justify-content: space-between !important;
+    justify-content: space-between;
     align-items: center;
     gap: 0.5rem;
     width: 100%;

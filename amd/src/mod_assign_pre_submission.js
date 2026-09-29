@@ -416,6 +416,42 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
     }
 
     /**
+     * Display values for the quiz footer timers.
+     *
+     * @param {object|null} timer Quiz timer instance.
+     * @returns {{totalDisplay: string, qDisplay: string, totalValue: string, qValue: string}}
+     */
+    function timerFooterState(timer) {
+        var hasTotal = !!(timer && timer.remaining !== null);
+        var hasQuestion = !!(timer && timer.questionRemaining !== null);
+        return {
+            totalDisplay: hasTotal ? 'inline-flex' : 'none',
+            qDisplay: hasQuestion ? 'inline-flex' : 'none',
+            totalValue: hasTotal ? formatMinutesSeconds(timer.remaining) : '',
+            qValue: hasQuestion ? formatMinutesSeconds(timer.questionRemaining) : ''
+        };
+    }
+
+    /**
+     * Prev/Next button HTML for the verification pager.
+     *
+     * @param {object} strings Localized labels.
+     * @param {boolean} prevDisabled Whether Previous is disabled.
+     * @param {boolean} showNext Whether to render Next.
+     * @param {boolean} nextDisabled Whether Next is disabled.
+     * @returns {string}
+     */
+    function verificationNavHtml(strings, prevDisabled, showNext, nextDisabled) {
+        var html = '<button type="button" class="btn btn-secondary plagiarism-dixeo-verification-prev"' +
+            (prevDisabled ? ' disabled' : '') + '>' + escapeHtml(strings.previous) + '</button>';
+        if (showNext) {
+            html += ' <button type="button" class="btn btn-primary plagiarism-dixeo-verification-next"' +
+                (nextDisabled ? ' disabled' : '') + '>' + escapeHtml(strings.next) + '</button>';
+        }
+        return html;
+    }
+
+    /**
      * Question id used in form names and saved answers.
      *
      * @param {object} question Question from get_verification_quiz.
@@ -606,22 +642,15 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             return;
         }
 
-        Promise.all([
-            Str.get_string('authorship_quiz_modal_title', 'plagiarism_dixeo'),
-            Str.get_string('authorship_confirm_statement', 'plagiarism_dixeo'),
-            Str.get_string('authorship_confirm_and_submit', 'plagiarism_dixeo'),
-            Str.get_string('authorship_cancel', 'plagiarism_dixeo'),
-            Str.get_string('close', 'plagiarism_dixeo'),
-            Str.get_string('authorship_quiz_load_error', 'plagiarism_dixeo'),
-            Str.get_string('verification_previous', 'plagiarism_dixeo'),
-            Str.get_string('verification_next', 'plagiarism_dixeo'),
-            Str.get_string('timer_test_tooltip', 'plagiarism_dixeo'),
-            Str.get_string('timer_question_tooltip', 'plagiarism_dixeo'),
-            Str.get_string('question_locked', 'plagiarism_dixeo'),
-            Str.get_string('question_locked_tooltip', 'plagiarism_dixeo'),
-            Str.get_string('true', 'plagiarism_dixeo'),
-            Str.get_string('false', 'plagiarism_dixeo')
-        ]).then(function(labels) {
+        var session = null;
+
+        /**
+         * Build the quiz modal and pager after strings have loaded.
+         *
+         * @param {string[]} labels String API results.
+         * @returns {{timer: object, applyLoadedQuiz: function}}
+         */
+        function startQuizSession(labels) {
             var title = labels[0];
             var confirmLabel = labels[1];
             var submitLabel = labels[2];
@@ -762,13 +791,17 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 }
                 ctx.currentIndex = nextIndex;
                 ctx.visited[ctx.currentIndex] = true;
-                if (timer) {
-                    timer.sync().then(function() {
-                        renderQuestionScreen();
-                    });
+                if (!timer) {
+                    renderQuestionScreen();
                     return;
                 }
-                renderQuestionScreen();
+                timer.sync().then(function() {
+                    renderQuestionScreen();
+                    return null;
+                }).catch(function() {
+                    renderQuestionScreen();
+                    return null;
+                });
             }
 
             /**
@@ -794,19 +827,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 var showNext = ctx.currentIndex < ctx.questions.length - 1;
                 var nowSec = Math.floor(Date.now() / 1000);
                 var nextDisabled = showNext && !ctx.allowBackwards && ctx.nextUnlockAt > nowSec;
-
-                var leftBtns = '<button type="button" class="btn btn-secondary plagiarism-dixeo-verification-prev"' +
-                    (prevDisabled ? ' disabled' : '') + '>' + escapeHtml(ctx.strings.previous) + '</button>';
-                if (showNext) {
-                    leftBtns += ' <button type="button" class="btn btn-primary plagiarism-dixeo-verification-next"' +
-                        (nextDisabled ? ' disabled' : '') + '>' + escapeHtml(ctx.strings.next) + '</button>';
-                }
-
-                var totalDisplay = (timer && timer.remaining !== null) ? 'inline-flex' : 'none';
-                var qDisplay = (timer && timer.questionRemaining !== null) ? 'inline-flex' : 'none';
-                var totalValue = (timer && timer.remaining !== null) ? formatMinutesSeconds(timer.remaining) : '';
-                var qValue = (timer && timer.questionRemaining !== null) ?
-                    formatMinutesSeconds(timer.questionRemaining) : '';
+                var timers = timerFooterState(timer);
+                var leftBtns = verificationNavHtml(ctx.strings, prevDisabled, showNext, nextDisabled);
 
                 footer.innerHTML =
                     '<div class="plagiarism-dixeo-verification-footer__left">' + leftBtns + '</div>' +
@@ -815,18 +837,28 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                     '<input type="checkbox" class="plagiarism-dixeo-confirm-checkbox"> ' +
                     escapeHtml(ctx.strings.confirm) + '</label>' +
                     '<span class="plagiarism-dixeo-footer-total-timer" title="' +
-                    escapeHtml(ctx.strings.timerTestTooltip) + '" style="display:' + totalDisplay + '">' +
+                    escapeHtml(ctx.strings.timerTestTooltip) + '" style="display:' + timers.totalDisplay + '">' +
                     ICON_CLOCK + ' <span class="plagiarism-dixeo-timer-value plagiarism-dixeo-quiz-countdown">' +
-                    totalValue + '</span></span>' +
+                    timers.totalValue + '</span></span>' +
                     ' <span class="plagiarism-dixeo-footer-question-timer" title="' +
-                    escapeHtml(ctx.strings.timerQuestionTooltip) + '" style="display:' + qDisplay + '">' +
-                    ICON_QUESTION + ' <span class="plagiarism-dixeo-timer-value">' + qValue + '</span></span>' +
+                    escapeHtml(ctx.strings.timerQuestionTooltip) + '" style="display:' + timers.qDisplay + '">' +
+                    ICON_QUESTION + ' <span class="plagiarism-dixeo-timer-value">' + timers.qValue + '</span></span>' +
                     ' <button type="button" class="btn btn-secondary plagiarism-dixeo-quiz-cancel">' +
                     escapeHtml(ctx.strings.cancel) + '</button>' +
                     ' <button type="button" class="btn btn-success plagiarism-dixeo-verification-submit" disabled>' +
                     escapeHtml(ctx.strings.submit) + '</button>' +
                     '</div>';
 
+                bindVerificationFooter(nextDisabled);
+                updateSubmitState();
+            }
+
+            /**
+             * Attach footer control handlers after the pager HTML is rebuilt.
+             *
+             * @param {boolean} nextDisabled Whether Next starts locked.
+             */
+            function bindVerificationFooter(nextDisabled) {
                 confirmCb = footer.querySelector('.plagiarism-dixeo-confirm-checkbox');
                 submitBtn = footer.querySelector('.plagiarism-dixeo-verification-submit');
                 var prevBtnEl = footer.querySelector('.plagiarism-dixeo-verification-prev');
@@ -888,7 +920,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                         updateSubmitState();
                     });
                 }
-                updateSubmitState();
             }
 
             /**
@@ -960,35 +991,58 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 }
             });
 
-            timer.start().then(function(quiz) {
-                var questions;
-                try {
-                    questions = JSON.parse(quiz.questions || '[]');
-                } catch (e) {
-                    questions = [];
+            return {
+                timer: timer,
+                applyLoadedQuiz: function(quiz) {
+                    var questions;
+                    try {
+                        questions = JSON.parse(quiz.questions || '[]');
+                    } catch (e) {
+                        questions = [];
+                    }
+                    if (!questions.length) {
+                        Notification.addNotification({message: loadError, type: 'error'});
+                        $modal.modal('hide');
+                        return null;
+                    }
+                    var answers;
+                    try {
+                        answers = JSON.parse(quiz.answers || '{}');
+                    } catch (err) {
+                        answers = {};
+                    }
+                    ctx.questions = questions;
+                    ctx.responses = answers && typeof answers === 'object' ? answers : {};
+                    ctx.currentIndex = Math.max(0, Math.min(questions.length - 1, quiz.current_index || 0));
+                    ctx.allowBackwards = !!quiz.allow_backwards;
+                    ctx.nextDelaySec = quiz.next_button_delay || 0;
+                    ctx.visited[ctx.currentIndex] = true;
+                    renderQuestionScreen();
+                    return null;
                 }
-                if (!questions.length) {
-                    Notification.addNotification({message: loadError, type: 'error'});
-                    $modal.modal('hide');
-                    return;
-                }
-                var answers;
-                try {
-                    answers = JSON.parse(quiz.answers || '{}');
-                } catch (err) {
-                    answers = {};
-                }
-                ctx.questions = questions;
-                ctx.responses = answers && typeof answers === 'object' ? answers : {};
-                ctx.currentIndex = Math.max(0, Math.min(questions.length - 1, quiz.current_index || 0));
-                ctx.allowBackwards = !!quiz.allow_backwards;
-                ctx.nextDelaySec = quiz.next_button_delay || 0;
-                ctx.visited[ctx.currentIndex] = true;
-                renderQuestionScreen();
-            }).catch(function(err) {
-                Notification.exception(err);
-            });
-            return null;
+            };
+        }
+
+        Promise.all([
+            Str.get_string('authorship_quiz_modal_title', 'plagiarism_dixeo'),
+            Str.get_string('authorship_confirm_statement', 'plagiarism_dixeo'),
+            Str.get_string('authorship_confirm_and_submit', 'plagiarism_dixeo'),
+            Str.get_string('authorship_cancel', 'plagiarism_dixeo'),
+            Str.get_string('close', 'plagiarism_dixeo'),
+            Str.get_string('authorship_quiz_load_error', 'plagiarism_dixeo'),
+            Str.get_string('verification_previous', 'plagiarism_dixeo'),
+            Str.get_string('verification_next', 'plagiarism_dixeo'),
+            Str.get_string('timer_test_tooltip', 'plagiarism_dixeo'),
+            Str.get_string('timer_question_tooltip', 'plagiarism_dixeo'),
+            Str.get_string('question_locked', 'plagiarism_dixeo'),
+            Str.get_string('question_locked_tooltip', 'plagiarism_dixeo'),
+            Str.get_string('true', 'plagiarism_dixeo'),
+            Str.get_string('false', 'plagiarism_dixeo')
+        ]).then(function(labels) {
+            session = startQuizSession(labels);
+            return session.timer.start();
+        }).then(function(quiz) {
+            return session.applyLoadedQuiz(quiz);
         }).catch(function(err) {
             Notification.exception(err);
         });
