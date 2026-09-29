@@ -962,8 +962,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 updateSubmitState();
             });
 
-            var Timer = QuizTimer.default || QuizTimer;
-            timer = new Timer({
+            timer = new QuizTimer({
                 recordId: recordId,
                 body: body,
                 collect: function() {
