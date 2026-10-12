@@ -184,7 +184,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         }
 
         $cm = get_coursemodule_from_id('assign', $cmid, 0, false, IGNORE_MISSING);
-        if (!$cm) {
+        if (!$cm || !self::enabled_for_course((int) $cm->course)) {
             return '';
         }
         $context = context_module::instance($cm->id);
@@ -240,6 +240,10 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
      * @return string HTML fragment, or an empty string when nothing is configured.
      */
     public function print_disclosure($cmid) {
+        $cm = get_coursemodule_from_id('', (int) $cmid, 0, false, IGNORE_MISSING);
+        if ($cm && !self::enabled_for_course((int) $cm->course)) {
+            return '';
+        }
         if (!self::is_enabled_for_activity((int) $cmid)) {
             return '';
         }
@@ -559,6 +563,21 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
 
         return !empty($config['use_dixeo']) && $config['use_dixeo'] === '1';
     }
+
+    /**
+     * Whether Dixeo features run in the course an activity belongs to.
+     *
+     * A course id outside a course follows the Dixeo layer.
+     *
+     * @param int $courseid
+     * @return bool
+     */
+    public static function enabled_for_course(int $courseid): bool {
+        $context = $courseid > SITEID
+            ? \context_course::instance($courseid)
+            : \context_system::instance();
+        return \local_dixeo\external\service_factory::get_settings_config()->enabled_for($context);
+    }
 }
 
 /**
@@ -571,6 +590,11 @@ function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
     global $CFG;
 
     if (!preg_match('/^mod_([^_]+)_mod_form$/', get_class($formwrapper), $matches) || $matches[1] !== 'assign') {
+        return;
+    }
+    // Plagiarism settings are a Dixeo feature, so the form adds none while Dixeo is off.
+    $course = $formwrapper->get_course();
+    if (!plagiarism_plugin_dixeo::enabled_for_course((int) ($course->id ?? 0))) {
         return;
     }
     if ($mform->elementExists('use_dixeo')) {
@@ -633,6 +657,10 @@ function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
  */
 function plagiarism_dixeo_coursemodule_definition_after_data($formwrapper, $mform) {
     if (!preg_match('/^mod_([^_]+)_mod_form$/', get_class($formwrapper), $matches) || $matches[1] !== 'assign') {
+        return;
+    }
+    $course = $formwrapper->get_course();
+    if (!plagiarism_plugin_dixeo::enabled_for_course((int) ($course->id ?? 0))) {
         return;
     }
     if ($mform->isSubmitted()) {

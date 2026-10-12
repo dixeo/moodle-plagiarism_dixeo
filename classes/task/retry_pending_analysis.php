@@ -58,12 +58,13 @@ class retry_pending_analysis extends \core\task\scheduled_task {
      * Requeue analysis for records that never reached a conclusion.
      */
     public function execute(): void {
-        global $DB;
+        global $CFG, $DB;
 
         if (!analysis_gate::is_available()) {
             return;
         }
 
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
         $now = time();
         $requeued = 0;
 
@@ -83,7 +84,10 @@ class retry_pending_analysis extends \core\task\scheduled_task {
             }
 
             $cm = get_coursemodule_from_instance('assign', (int) $submission->assignment, 0, false, IGNORE_MISSING);
-            if (!$cm || !analysis_gate::is_enabled_for_activity((int) $cm->id)) {
+            if (!$cm || !\plagiarism_plugin_dixeo::enabled_for_course((int) $cm->course)) {
+                continue;
+            }
+            if (!analysis_gate::is_enabled_for_activity((int) $cm->id)) {
                 continue;
             }
 
