@@ -63,7 +63,7 @@ class analyze_submission extends \core\task\adhoc_task {
      * @throws \moodle_exception When the analysis cannot be completed.
      */
     public function execute(): void {
-        global $DB;
+        global $CFG, $DB;
 
         $data = (array) $this->get_custom_data();
         $cmid = (int) ($data['cmid'] ?? 0);
@@ -73,6 +73,12 @@ class analyze_submission extends \core\task\adhoc_task {
 
         if ($cmid <= 0 || $courseid <= 0 || $userid <= 0 || $submissionid <= 0) {
             mtrace('plagiarism_dixeo: incomplete task data, nothing to analyse.');
+            return;
+        }
+
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+        if (!\plagiarism_plugin_dixeo::enabled_for_course($courseid)) {
+            mtrace('plagiarism_dixeo: Dixeo is off for this course, skipping analysis.');
             return;
         }
 

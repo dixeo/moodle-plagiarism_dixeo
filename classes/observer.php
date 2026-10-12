@@ -55,6 +55,9 @@ class observer {
      * @param base $event Submission plugin assessable_uploaded event.
      */
     public static function submission_uploaded(base $event): void {
+        if (!self::dixeo_enabled((int) $event->courseid)) {
+            return;
+        }
         self::dispatch_analysis(
             (int) $event->contextinstanceid,
             (int) $event->courseid,
@@ -70,6 +73,9 @@ class observer {
      * @param base $event mod_assign assessable_submitted event.
      */
     public static function submission_submitted(base $event): void {
+        if (!self::dixeo_enabled((int) $event->courseid)) {
+            return;
+        }
         $cmid = (int) $event->contextinstanceid;
         $courseid = (int) $event->courseid;
         $userid = (int) $event->userid;
@@ -140,6 +146,18 @@ class observer {
         author_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
         presubmission_feedback_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
         grade_feedback_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+    }
+
+    /**
+     * Whether Dixeo features run for the course on the submission event.
+     *
+     * @param int $courseid
+     * @return bool
+     */
+    private static function dixeo_enabled(int $courseid): bool {
+        global $CFG;
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+        return \plagiarism_plugin_dixeo::enabled_for_course($courseid);
     }
 
     /**

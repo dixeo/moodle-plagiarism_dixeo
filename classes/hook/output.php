@@ -86,7 +86,11 @@ class output {
         require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
 
         $cmid = (int) ($url->get_param('id') ?? 0);
-        if ($cmid <= 0 || !\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
+        $cm = $cmid > 0 ? get_coursemodule_from_id('', $cmid, 0, false, IGNORE_MISSING) : false;
+        if (!$cm || !\plagiarism_plugin_dixeo::enabled_for_course((int) $cm->course)) {
+            return [];
+        }
+        if (!\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
             return [];
         }
 
