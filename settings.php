@@ -52,7 +52,10 @@ $mform->set_data(
     array_merge(plagiarism_dixeo_setup_form::get_config_fields(), (array) get_config('plagiarism_dixeo'))
 );
 
+\local_dixeo\admin_setting_modal_open::prepare_stylesheet();
+
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('pluginname', 'plagiarism_dixeo'));
+echo \local_dixeo\admin_setting_modal_open::html();
 $mform->display();
 echo $OUTPUT->footer();
