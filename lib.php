@@ -56,35 +56,23 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     }
 
     /**
-     * Per-activity settings and the values each one accepts.
+     * Per-assignment snapshots and the values each one accepts.
      *
-     * Both flags default to off so enabling Dixeo on an activity is always a deliberate act.
+     * A missing row uses the Dixeo default. The assignment modal stores the snapshot,
+     * and a later Dixeo change does not rewrite it.
      *
-     * @return array<string, array{default: string, values: string[]}>
+     * @return array<string, array{default: string, values?: string[], kind?: string}>
      */
     public static function get_activity_settings(): array {
         $visibility = [self::VISIBILITY_HIDE, self::VISIBILITY_SCORE, self::VISIBILITY_SCOREANDFEEDBACK];
 
         return [
-            'use_dixeo' => ['default' => '0', 'values' => ['0', '1']],
+            'authorship_threshold' => ['default' => '75', 'kind' => 'threshold'],
             'enable_auto_grading' => ['default' => '0', 'values' => ['0', '1']],
             'show_initial_score' => ['default' => self::VISIBILITY_SCORE, 'values' => $visibility],
             'show_test_score' => ['default' => self::VISIBILITY_SCORE, 'values' => $visibility],
             'show_final_score' => ['default' => self::VISIBILITY_SCORE, 'values' => $visibility],
         ];
-    }
-
-    /**
-     * Site-level plugin settings.
-     *
-     * @return array|false Settings keyed by name, or false when the plugin is switched off.
-     */
-    public static function get_settings() {
-        if (!get_config('plagiarism_dixeo', 'enabled')) {
-            return false;
-        }
-
-        return (array) get_config('plagiarism_dixeo');
     }
 
     /**
@@ -110,11 +98,20 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         }
 
         $stored = $DB->get_records_menu(self::CONFIG_TABLE, ['cm' => $cmid], '', 'name, value');
+        $modulecontext = \context_module::instance($cmid);
+        $catalogue = \local_dixeo\external\service_factory::get_settings_config();
 
         $config = [];
         foreach (self::get_activity_settings() as $name => $spec) {
-            $value = isset($stored[$name]) ? (string) $stored[$name] : $spec['default'];
-            $config[$name] = in_array($value, $spec['values'], true) ? $value : $spec['default'];
+            $resolved = $catalogue->get('plagiarism_dixeo', $name, $modulecontext);
+            if ($resolved->get_source() === 'activity') {
+                $accepted = self::accept_activity_value($resolved->get_value(), $spec);
+                $config[$name] = $accepted ?? self::resolved_activity_default($name, $spec);
+                continue;
+            }
+            $fallback = self::resolved_activity_default($name, $spec);
+            $accepted = isset($stored[$name]) ? self::accept_activity_value((string) $stored[$name], $spec) : null;
+            $config[$name] = $accepted ?? $fallback;
         }
         $cache->set($cachekey, $config);
 
@@ -122,7 +119,10 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     }
 
     /**
-     * Write settings for a course module, ignoring anything not in get_activity_settings().
+     * Write settings for a course module.
+     *
+     * Names outside {@see self::get_activity_settings()} are ignored. A value outside the
+     * list that setting accepts is ignored, so it does not replace the Dixeo default.
      *
      * @param int $cmid Course module id.
      * @param array $values Setting name => value.
@@ -141,10 +141,17 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
                 continue;
             }
 
-            $value = (string) $values[$name];
-            if (!in_array($value, $spec['values'], true)) {
-                $value = $spec['default'];
+            $value = self::accept_activity_value((string) $values[$name], $spec);
+            if ($value === null) {
+                continue;
             }
+            \local_dixeo\external\service_factory::get_settings_config()->set(
+                'plagiarism_dixeo',
+                $name,
+                \context_module::instance($cmid),
+                $value,
+                false
+            );
 
             if (isset($existing[$name])) {
                 $DB->update_record(self::CONFIG_TABLE, (object) [
@@ -163,6 +170,40 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         }
 
         self::get_request_cache()->delete('config_' . $cmid);
+    }
+
+    /**
+     * Dixeo default for one assignment snapshot, or the shipped default when it is not usable.
+     *
+     * @param string $name Setting name.
+     * @param array $spec Entry from {@see self::get_activity_settings()}.
+     * @return string
+     */
+    private static function resolved_activity_default(string $name, array $spec): string {
+        $value = \plagiarism_dixeo\feature_settings::value($name, \context_system::instance());
+        return self::accept_activity_value($value, $spec) ?? $spec['default'];
+    }
+
+    /**
+     * Accept a stored snapshot, or null when it is outside the values the setting allows.
+     *
+     * @param string $value Candidate value.
+     * @param array $spec Entry from {@see self::get_activity_settings()}.
+     * @return string|null
+     */
+    private static function accept_activity_value(string $value, array $spec): ?string {
+        if (($spec['kind'] ?? '') === 'threshold') {
+            if (!preg_match('/^\d+$/', $value)) {
+                return null;
+            }
+            $threshold = (int) $value;
+            if ($threshold < 0 || $threshold > 100) {
+                return null;
+            }
+            return (string) $threshold;
+        }
+        $allowed = $spec['values'] ?? [];
+        return in_array($value, $allowed, true) ? $value : null;
     }
 
     /**
@@ -244,11 +285,14 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         if ($cm && !self::enabled_for_course((int) $cm->course)) {
             return '';
         }
-        if (!self::is_enabled_for_activity((int) $cmid)) {
+        if (!$cm || !self::is_enabled_for_activity((int) $cmid)) {
             return '';
         }
 
-        $disclosure = (string) get_config('plagiarism_dixeo', 'student_disclosure');
+        $disclosure = \plagiarism_dixeo\feature_settings::value(
+            \plagiarism_dixeo\feature_settings::DISCLOSURE,
+            \context_system::instance()
+        );
         if (trim($disclosure) === '') {
             return '';
         }
@@ -554,14 +598,12 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             return false;
         }
 
-        $settings = self::get_settings();
-        if (!$settings || empty($settings['enable_mod_assign'])) {
+        $coursecontext = \plagiarism_dixeo\feature_settings::course_context_for_cm($cmid);
+        if (!$coursecontext instanceof \context || !self::enabled_for_course((int) $coursecontext->instanceid)) {
             return false;
         }
 
-        $config = self::get_activity_config($cmid);
-
-        return !empty($config['use_dixeo']) && $config['use_dixeo'] === '1';
+        return \plagiarism_dixeo\feature_settings::assignment_feedback_on(\context_module::instance($cmid));
     }
 
     /**
@@ -581,127 +623,246 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
 }
 
 /**
+ * Dixeo settings owned by plagiarism_dixeo.
+ *
+ * Trigger, evaluation mode, and the student disclosure are Dixeo-wide. The other settings
+ * have a Dixeo default and an assignment copy. There is no course layer. A new assignment
+ * starts from the Dixeo default. Saving the assignment stores its own copy, and a later
+ * Dixeo change does not rewrite it.
+ *
+ * @return array[]
+ */
+function plagiarism_dixeo_dixeo_settings(): array {
+    $score = static function (string $key, string $help): array {
+        return [
+            'key' => $key,
+            'shortname' => $key,
+            'component' => 'plagiarism_dixeo',
+            'type' => 'select',
+            'default' => plagiarism_plugin_dixeo::VISIBILITY_SCORE,
+            'options' => [
+                plagiarism_plugin_dixeo::VISIBILITY_HIDE,
+                plagiarism_plugin_dixeo::VISIBILITY_SCORE,
+                plagiarism_plugin_dixeo::VISIBILITY_SCOREANDFEEDBACK,
+            ],
+            'levels' => ['dixeo', 'activity'],
+            'feature' => 'assignment',
+            'sub' => 'authorship',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => $help,
+            'sensitive' => false,
+            'requires' => 'verification_test',
+        ];
+    };
+
+    return [
+        [
+            'key' => 'assignment_feedback_enabled',
+            'shortname' => 'assignment_feedback_enabled',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'bool',
+            'default' => '0',
+            'levels' => ['dixeo', 'activity'],
+            'feature' => 'assignment',
+            'sub' => 'feedback',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'assignment_feedback_enabled_help',
+            'sensitive' => false,
+        ],
+        [
+            'key' => 'assign_trigger',
+            'shortname' => 'assign_trigger',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'select',
+            'default' => 'submit',
+            'options' => ['upload', 'submit'],
+            'levels' => ['dixeo'],
+            'feature' => 'assignment',
+            'sub' => 'feedback',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'assign_trigger_help',
+            'sensitive' => false,
+        ],
+        [
+            'key' => 'evaluation_mode',
+            'shortname' => 'evaluation_mode',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'select',
+            'default' => 'async',
+            'options' => ['async', 'sync'],
+            'levels' => ['dixeo'],
+            'feature' => 'assignment',
+            'sub' => 'feedback',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'evaluation_mode_help',
+            'sensitive' => false,
+        ],
+        [
+            'key' => 'student_disclosure',
+            'shortname' => 'student_disclosure',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'textarea',
+            'default' => '',
+            'levels' => ['dixeo'],
+            'feature' => 'assignment',
+            'sub' => 'feedback',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'student_disclosure_help',
+            'sensitive' => false,
+        ],
+        [
+            'key' => 'authorship_enabled',
+            'shortname' => 'authorship_enabled',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'bool',
+            'default' => '0',
+            'levels' => ['dixeo', 'activity'],
+            'feature' => 'assignment',
+            'sub' => 'authorship',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'authorship_enabled_desc',
+            'sensitive' => false,
+        ],
+        [
+            'key' => 'verification_test',
+            'shortname' => 'verification_test',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'bool',
+            'default' => '0',
+            'levels' => ['dixeo', 'activity'],
+            'feature' => 'assignment',
+            'sub' => 'authorship',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'verification_test_help',
+            'sensitive' => false,
+            'requires' => 'authorship_enabled',
+        ],
+        [
+            'key' => 'authorship_threshold',
+            'shortname' => 'authorship_threshold',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'number',
+            'default' => '75',
+            'min' => 0,
+            'max' => 100,
+            'levels' => ['dixeo', 'activity'],
+            'feature' => 'assignment',
+            'sub' => 'authorship',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'authorship_threshold_help',
+            'sensitive' => false,
+            'requires' => 'verification_test',
+        ],
+        $score('show_initial_score', 'display_initial_score_visibility_help'),
+        $score('show_test_score', 'display_test_score_visibility_help'),
+        $score('show_final_score', 'display_final_score_visibility_help'),
+        [
+            'key' => 'grading_enabled',
+            'shortname' => 'grading_enabled',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'bool',
+            'default' => '0',
+            'levels' => ['dixeo', 'activity'],
+            'feature' => 'assignment',
+            'sub' => 'grading',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'grading_enabled_help',
+            'sensitive' => false,
+        ],
+        [
+            'key' => 'enable_auto_grading',
+            'shortname' => 'enable_auto_grading',
+            'component' => 'plagiarism_dixeo',
+            'type' => 'bool',
+            'default' => '0',
+            'levels' => ['dixeo', 'activity'],
+            'feature' => 'assignment',
+            'sub' => 'grading',
+            'plugingroup' => 'plagiarism_dixeo',
+            'help' => 'enable_auto_grading_help',
+            'sensitive' => false,
+            'requires' => 'grading_enabled',
+        ],
+    ];
+}
+
+/**
  * Add the Dixeo section to the assignment settings form.
+ *
+ * The section is a label and a button that opens this assignment in the settings modal.
+ * It is omitted while the Dixeo layer is off.
  *
  * @param moodleform_mod $formwrapper Form wrapper, exposing the course module being edited.
  * @param MoodleQuickForm $mform Form to add elements to.
  */
 function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
-    global $CFG;
+    global $DB, $OUTPUT, $PAGE;
 
     if (!preg_match('/^mod_([^_]+)_mod_form$/', get_class($formwrapper), $matches) || $matches[1] !== 'assign') {
         return;
     }
-    // Plagiarism settings are a Dixeo feature, so the form adds none while Dixeo is off.
-    $course = $formwrapper->get_course();
-    if (!plagiarism_plugin_dixeo::enabled_for_course((int) ($course->id ?? 0))) {
+    if (!\local_dixeo\external\service_factory::get_settings_config()->enabled_for(\context_system::instance())) {
         return;
     }
-    if ($mform->elementExists('use_dixeo')) {
+    if ($mform->elementExists('plagiarism_dixeo')) {
+        return;
+    }
+
+    $course = $formwrapper->get_course();
+    $courseid = (int) ($course->id ?? 0);
+    if ($courseid <= 0) {
+        return;
+    }
+    $coursecontext = \context_course::instance($courseid);
+    if (!has_capability('moodle/course:update', $coursecontext)) {
         return;
     }
 
     $cm = $formwrapper->get_coursemodule();
-    $config = plagiarism_plugin_dixeo::get_activity_config($cm ? (int) $cm->id : 0);
-    $settings = plagiarism_plugin_dixeo::get_settings();
-    $available = !empty($CFG->enableplagiarism) && $settings && !empty($settings['enable_mod_assign']);
-
-    // Carry the stored values through the form untouched while Dixeo is unavailable, so
-    // turning the plugin back on restores the activity to how it was configured.
-    if (!$available) {
-        foreach (plagiarism_plugin_dixeo::get_activity_settings() as $name => $spec) {
-            $mform->addElement('hidden', $name, $config[$name] ?? $spec['default']);
-            $mform->setType($name, PARAM_ALPHANUM);
-        }
-        return;
+    $cmid = $cm ? (int) $cm->id : 0;
+    $contextid = $coursecontext->id;
+    $activityname = '';
+    if ($cmid > 0 && $cm) {
+        $contextid = \context_module::instance($cmid)->id;
+        $activityname = (string) $DB->get_field('assign', 'name', ['id' => $cm->instance]);
     }
-
-    $yesno = ['0' => get_string('no'), '1' => get_string('yes')];
-    $visibility = [
-        plagiarism_plugin_dixeo::VISIBILITY_HIDE => get_string('visibility_hide', 'plagiarism_dixeo'),
-        plagiarism_plugin_dixeo::VISIBILITY_SCORE => get_string('visibility_score', 'plagiarism_dixeo'),
-        plagiarism_plugin_dixeo::VISIBILITY_SCOREANDFEEDBACK =>
-            get_string('visibility_score_and_feedback', 'plagiarism_dixeo'),
-    ];
 
     $mform->addElement('header', 'plagiarism_dixeo', get_string('pluginname', 'plagiarism_dixeo'));
+    $mform->addElement(
+        'static',
+        'plagiarism_dixeo_settings_intro',
+        '',
+        html_writer::div(get_string('settings_form_label', 'plagiarism_dixeo'), 'plagiarism-dixeo-settings-label')
+    );
+    $mform->getElement('plagiarism_dixeo_settings_intro')->updateAttributes([
+        'parentclass' => 'plagiarism-dixeo-settings-launch',
+    ]);
 
-    $elements = [
-        'use_dixeo' => ['options' => $yesno, 'label' => 'use_dixeo'],
-        'enable_auto_grading' => ['options' => $yesno, 'label' => 'enable_auto_grading'],
-        'show_initial_score' => ['options' => $visibility, 'label' => 'display_initial_score_visibility'],
-        'show_test_score' => ['options' => $visibility, 'label' => 'display_test_score_visibility'],
-        'show_final_score' => ['options' => $visibility, 'label' => 'display_final_score_visibility'],
+    $logo = html_writer::img($OUTPUT->image_url('dixeo-white', 'local_dixeo'), '', [
+        'class' => 'local-dixeo-settings-logo',
+        'alt' => '',
+        'aria-hidden' => 'true',
+        'width' => 16,
+        'height' => 16,
+    ]);
+    $buttonattributes = [
+        'data-action' => 'local-dixeo-settings-open',
+        'data-contextid' => (string) $contextid,
+        'data-courseid' => (string) $courseid,
+        'data-course-name' => format_string($course->fullname ?? '', true, ['context' => $coursecontext]),
+        'data-initial' => 'feature:assignment',
+        'type' => 'button',
+        'parentclass' => 'local-dixeo-settings-open plagiarism-dixeo-settings-launch',
     ];
-
-    foreach ($elements as $name => $element) {
-        $mform->addElement('select', $name, get_string($element['label'], 'plagiarism_dixeo'), $element['options']);
-        $mform->setType($name, PARAM_ALPHANUM);
-        $mform->setDefault($name, $config[$name]);
-        $mform->addHelpButton($name, $element['label'], 'plagiarism_dixeo');
-
-        if ($name !== 'use_dixeo') {
-            $mform->hideIf($name, 'use_dixeo', 'eq', '0');
-        }
+    if ($activityname !== '') {
+        $buttonattributes['data-activity-name'] = $activityname;
     }
-}
-
-/**
- * Select the stored Dixeo settings once the assignment form has its data.
- *
- * The values live outside the module record, so they are applied here rather than relying
- * on defaults surviving set_data().
- *
- * @param moodleform_mod $formwrapper Form wrapper, exposing the course module being edited.
- * @param MoodleQuickForm $mform Form holding the elements.
- */
-function plagiarism_dixeo_coursemodule_definition_after_data($formwrapper, $mform) {
-    if (!preg_match('/^mod_([^_]+)_mod_form$/', get_class($formwrapper), $matches) || $matches[1] !== 'assign') {
-        return;
-    }
-    $course = $formwrapper->get_course();
-    if (!plagiarism_plugin_dixeo::enabled_for_course((int) ($course->id ?? 0))) {
-        return;
-    }
-    if ($mform->isSubmitted()) {
-        return;
-    }
-
-    $cm = $formwrapper->get_coursemodule();
-    if (!$cm) {
-        return;
-    }
-
-    $config = plagiarism_plugin_dixeo::get_activity_config((int) $cm->id);
-    foreach ($config as $name => $value) {
-        if ($mform->elementExists($name)) {
-            $mform->getElement($name)->setValue($value);
-        }
-    }
-}
-
-/**
- * Store the Dixeo settings submitted with an assignment.
- *
- * @param stdClass $data Validated form data.
- * @param stdClass $course Course the activity belongs to.
- * @return stdClass The unmodified form data.
- */
-function plagiarism_dixeo_coursemodule_edit_post_actions($data, $course) {
-    if (empty($data->coursemodule) || (isset($data->modulename) && $data->modulename !== 'assign')) {
-        return $data;
-    }
-
-    $values = [];
-    foreach (array_keys(plagiarism_plugin_dixeo::get_activity_settings()) as $name) {
-        if (isset($data->$name)) {
-            $values[$name] = (string) $data->$name;
-        }
-    }
-
-    if ($values) {
-        plagiarism_plugin_dixeo::set_activity_config((int) $data->coursemodule, $values);
-    }
-
-    return $data;
+    $mform->addElement(
+        'button',
+        'plagiarism_dixeo_settings_open',
+        $logo . get_string('settings_button', 'local_dixeo'),
+        $buttonattributes,
+        ['customclassoverride' => 'btn-primary']
+    );
+    $PAGE->requires->js_call_amd('local_dixeo/settings_modal', 'init');
 }

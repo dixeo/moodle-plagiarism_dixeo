@@ -1,3 +1,36 @@
+/* Assignment form: indent the section with the other controls, label tight above the button. */
+#id_plagiarism_dixeocontainer {
+    padding-left: calc(25% + 1.5rem);
+}
+
+@media (max-width: 767.98px) {
+    #id_plagiarism_dixeocontainer {
+        padding-left: 0;
+    }
+}
+
+.mform .fitem.plagiarism-dixeo-settings-launch > .col-md-3 {
+    display: none;
+}
+
+.mform .fitem.plagiarism-dixeo-settings-launch > .felement {
+    flex: 0 0 100%;
+    max-width: 100%;
+    justify-content: flex-start;
+    padding-left: 0;
+}
+
+.mform #fitem_id_plagiarism_dixeo_settings_intro.plagiarism-dixeo-settings-launch {
+    margin-bottom: 0 !important; /* stylelint-disable-line declaration-no-important */
+}
+
+.plagiarism-dixeo-settings-label {
+    display: block;
+    margin: 0;
+    font-weight: normal;
+    text-align: left;
+}
+
 #plagiarism_dixeo_grade_analyze_btn img,
 #plagiarism_dixeo_analyze_btn img {
     display: inline;
