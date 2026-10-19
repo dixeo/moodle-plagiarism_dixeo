@@ -66,8 +66,8 @@ final class draft_grading_test extends \advanced_testcase {
         $this->resetAfterTest(true);
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
         set_config('assign_trigger', analysis_gate::TRIGGER_SUBMIT, 'plagiarism_dixeo');
 
         $this->course = $this->getDataGenerator()->create_course();
@@ -88,7 +88,6 @@ final class draft_grading_test extends \advanced_testcase {
         ]);
 
         \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, [
-            'use_dixeo' => '1',
             'enable_auto_grading' => '1',
         ]);
     }
@@ -140,11 +139,20 @@ final class draft_grading_test extends \advanced_testcase {
         $this->assertSame(1, $DB->count_records('task_adhoc', ['classname' => '\\' . stage_draft_grade::class]));
     }
 
+    public function test_no_draft_is_prepared_when_grading_is_off(): void {
+        global $DB;
+
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
+
+        $this->fire_submitted();
+
+        $this->assertSame(0, $DB->count_records('task_adhoc', ['classname' => '\\' . stage_draft_grade::class]));
+    }
+
     public function test_no_draft_is_prepared_unless_the_activity_opted_in(): void {
         global $DB;
 
         \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, [
-            'use_dixeo' => '1',
             'enable_auto_grading' => '0',
         ]);
 
@@ -171,7 +179,6 @@ final class draft_grading_test extends \advanced_testcase {
 
     public function test_the_task_does_nothing_once_draft_grading_is_switched_off(): void {
         \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, [
-            'use_dixeo' => '1',
             'enable_auto_grading' => '0',
         ]);
 

@@ -48,12 +48,11 @@ final class hook_output_test extends \advanced_testcase {
         $this->resetAfterTest();
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
 
         $course = $this->getDataGenerator()->create_course();
         $this->assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '1']);
     }
 
     /**
@@ -94,22 +93,38 @@ final class hook_output_test extends \advanced_testcase {
         );
     }
 
-    public function test_no_scripts_when_the_activity_is_off(): void {
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '0']);
+    public function test_no_scripts_when_the_assignment_turns_feedback_off(): void {
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'assignment_feedback_enabled',
+            \context_module::instance((int) $this->assign->cmid),
+            '0',
+            false
+        );
 
         $this->assertSame([], $this->modules_for($this->assign_url()));
         $this->assertSame([], $this->modules_for($this->assign_url(['action' => 'grader'])));
     }
 
-    public function test_no_scripts_when_assignments_are_disabled_for_the_site(): void {
-        set_config('enable_mod_assign', 0, 'plagiarism_dixeo');
+    public function test_grader_is_omitted_when_grading_is_off(): void {
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
+
+        $this->assertSame(
+            ['plagiarism_dixeo/mod_assign_pre_submission'],
+            $this->modules_for($this->assign_url())
+        );
+        $this->assertSame([], $this->modules_for($this->assign_url(['action' => 'grader'])));
+    }
+
+    public function test_no_scripts_when_the_dixeo_feedback_default_is_off(): void {
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
 
         $this->assertSame([], $this->modules_for($this->assign_url()));
         $this->assertSame([], $this->modules_for($this->assign_url(['action' => 'grader'])));
     }
 
     public function test_no_scripts_when_the_plugin_is_disabled(): void {
-        set_config('enabled', 0, 'plagiarism_dixeo');
+        set_config('enabled', '0', 'local_dixeo');
 
         $this->assertSame([], $this->modules_for($this->assign_url(['action' => 'grader'])));
     }

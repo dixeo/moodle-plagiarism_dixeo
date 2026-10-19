@@ -57,40 +57,45 @@ class authorship {
     public const DEFAULT_COUNT_OPEN = 1;
 
     /**
-     * Whether authorship features are enabled.
+     * Whether authorship verification is on.
      *
+     * A context inside a course uses that course. With no context, the Dixeo layer is used.
+     *
+     * @param \context|null $context Course, activity, or system context.
      * @return bool
      */
-    public static function is_enabled(): bool {
-        return (int) get_config('plagiarism_dixeo', 'authorship_enabled') === 1;
+    public static function is_enabled(?\context $context = null): bool {
+        return \plagiarism_dixeo\feature_settings::authorship_on($context ?? \context_system::instance());
     }
 
     /**
-     * Confidence threshold (0–100) below which a quiz is required.
+     * Dixeo-level confidence threshold (0–100) below which a quiz is required.
+     *
+     * An assignment uses its own snapshot. Pass that value to {@see self::is_quiz_required()}.
      *
      * @return float
      */
     public static function get_confidence_threshold(): float {
-        $value = get_config('plagiarism_dixeo', 'authorship_threshold');
-        $int = ($value !== false && $value !== null) ? (int) $value : (int) self::DEFAULT_CONFIDENCE_THRESHOLD;
+        $value = \plagiarism_dixeo\feature_settings::value(
+            \plagiarism_dixeo\feature_settings::THRESHOLD,
+            \context_system::instance()
+        );
+        $int = $value === '' ? (int) self::DEFAULT_CONFIDENCE_THRESHOLD : (int) $value;
         return (float) max(self::CONFIDENCE_MIN, min(self::CONFIDENCE_MAX, $int));
     }
 
     /**
-     * Question counts per type from plugin settings (0–5 each).
+     * Question counts per type.
+     *
+     * These are fixed so the quiz shape can be adjusted in code without a setting.
      *
      * @return array{true_false: int, multiple_choice: int, open: int}
      */
     public static function get_question_counts(): array {
-        $read = function ($key, $default) {
-            $v = get_config('plagiarism_dixeo', $key);
-            $n = ($v !== false && $v !== null) ? (int) $v : $default;
-            return max(0, min(5, $n));
-        };
         return [
-            'true_false' => $read('authorship_count_true_false', self::DEFAULT_COUNT_TRUE_FALSE),
-            'multiple_choice' => $read('authorship_count_multiple_choice', self::DEFAULT_COUNT_MULTIPLE_CHOICE),
-            'open' => $read('authorship_count_open', self::DEFAULT_COUNT_OPEN),
+            'true_false' => self::DEFAULT_COUNT_TRUE_FALSE,
+            'multiple_choice' => self::DEFAULT_COUNT_MULTIPLE_CHOICE,
+            'open' => self::DEFAULT_COUNT_OPEN,
         ];
     }
 

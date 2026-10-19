@@ -60,8 +60,8 @@ final class check_authorship_resume_test extends \advanced_testcase {
         $this->resetAfterTest(true);
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
         set_config('authorship_enabled', 1, 'plagiarism_dixeo');
 
         $course = $this->getDataGenerator()->create_course();
@@ -69,7 +69,6 @@ final class check_authorship_resume_test extends \advanced_testcase {
             'course' => $course->id,
             'assignsubmission_onlinetext_enabled' => 1,
         ]);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, ['use_dixeo' => '1']);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
 
         $now = time();

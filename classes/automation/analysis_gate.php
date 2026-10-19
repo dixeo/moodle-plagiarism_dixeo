@@ -27,10 +27,9 @@ namespace plagiarism_dixeo\automation;
 /**
  * The switches that all have to be on before Dixeo looks at a submission by itself.
  *
- * Automatic analysis sends student work to an external service, so it stays off unless a
- * site administrator has enabled the plugin and a teacher has opted this activity in. The
- * gate is consulted twice: when the event fires, and again when the queued task runs, since
- * an administrator may have turned the plugin off in between.
+ * Automatic analysis sends student work to an external service, so it stays off unless
+ * the master switch is on and this assignment's feedback switch is on. The gate is
+ * consulted twice: when the event fires, and again when the queued task runs.
  */
 class analysis_gate {
     /** @var string Analyse as soon as a draft is saved. */
@@ -46,7 +45,9 @@ class analysis_gate {
     public const MODE_SYNC = 'sync';
 
     /**
-     * Whether automatic analysis of assignments is switched on for the site.
+     * Whether the plagiarism subsystem and the Dixeo master switch allow analysis.
+     *
+     * The assignment's own feedback switch is checked separately.
      *
      * @return bool
      */
@@ -57,28 +58,33 @@ class analysis_gate {
             return false;
         }
 
-        return (int) get_config('plagiarism_dixeo', 'enabled') === 1
-            && (int) get_config('plagiarism_dixeo', 'enable_mod_assign') === 1;
+        return \local_dixeo\external\service_factory::get_settings_config()->enabled_for(\context_system::instance());
     }
 
     /**
-     * The submission event an administrator has chosen to analyse on.
+     * The submission event Dixeo analyses on.
      *
      * @return string One of the TRIGGER_* constants.
      */
     public static function get_trigger(): string {
-        $trigger = (string) get_config('plagiarism_dixeo', 'assign_trigger');
+        $trigger = \plagiarism_dixeo\feature_settings::value(
+            \plagiarism_dixeo\feature_settings::TRIGGER,
+            \context_system::instance()
+        );
 
         return $trigger === self::TRIGGER_UPLOAD ? self::TRIGGER_UPLOAD : self::TRIGGER_SUBMIT;
     }
 
     /**
-     * Whether analysis runs in the observer or is queued for later.
+     * Whether analysis runs in the observer or is queued.
      *
      * @return string One of the MODE_* constants.
      */
     public static function get_evaluation_mode(): string {
-        $mode = (string) get_config('plagiarism_dixeo', 'evaluation_mode');
+        $mode = \plagiarism_dixeo\feature_settings::value(
+            \plagiarism_dixeo\feature_settings::EVALUATION_MODE,
+            \context_system::instance()
+        );
 
         return $mode === self::MODE_SYNC ? self::MODE_SYNC : self::MODE_ASYNC;
     }
@@ -108,7 +114,7 @@ class analysis_gate {
     }
 
     /**
-     * Whether the teacher has opted this activity in to Dixeo.
+     * Whether assignment feedback is on for this assignment.
      *
      * @param int $cmid Assignment course module id.
      * @return bool
@@ -131,6 +137,10 @@ class analysis_gate {
         global $CFG;
 
         require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
+        if ($cmid <= 0 || !\plagiarism_dixeo\feature_settings::grading_on(\context_module::instance($cmid))) {
+            return false;
+        }
 
         $config = \plagiarism_plugin_dixeo::get_activity_config($cmid);
 

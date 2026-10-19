@@ -95,11 +95,17 @@ class output {
         }
 
         $path = $url->get_path();
+        $gradingon = \plagiarism_dixeo\feature_settings::grading_on(\context_module::instance($cmid));
         $calls = [];
         foreach (self::$urlscriptmap as $entry) {
-            if (self::url_matches($path, $url, $entry)) {
-                $calls[] = $entry['amd'];
+            if (!self::url_matches($path, $url, $entry)) {
+                continue;
             }
+            $module = $entry['amd'][0];
+            if ($module === 'plagiarism_dixeo/mod_assign_grade_submission' && !$gradingon) {
+                continue;
+            }
+            $calls[] = $entry['amd'];
         }
 
         return $calls;

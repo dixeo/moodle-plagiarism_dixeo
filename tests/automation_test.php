@@ -62,8 +62,8 @@ final class automation_test extends \advanced_testcase {
         $this->resetAfterTest(true);
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
         set_config('assign_trigger', analysis_gate::TRIGGER_SUBMIT, 'plagiarism_dixeo');
 
         $this->course = $this->getDataGenerator()->create_course();
@@ -81,8 +81,6 @@ final class automation_test extends \advanced_testcase {
             'attemptnumber' => 0,
             'latest' => 1,
         ]);
-
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '1']);
     }
 
     protected function tearDown(): void {
@@ -147,8 +145,14 @@ final class automation_test extends \advanced_testcase {
         $this->assertSame(1, $this->count_queued_tasks());
     }
 
-    public function test_nothing_is_queued_when_the_activity_has_not_opted_in(): void {
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '0']);
+    public function test_nothing_is_queued_when_the_assignment_turns_feedback_off(): void {
+        service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'assignment_feedback_enabled',
+            \context_module::instance((int) $this->assign->cmid),
+            '0',
+            false
+        );
 
         $this->fire_submission_event(analysis_gate::TRIGGER_SUBMIT);
 
@@ -165,15 +169,15 @@ final class automation_test extends \advanced_testcase {
     }
 
     public function test_nothing_is_queued_when_the_plugin_is_disabled(): void {
-        set_config('enabled', 0, 'plagiarism_dixeo');
+        set_config('enabled', '0', 'local_dixeo');
 
         $this->fire_submission_event(analysis_gate::TRIGGER_SUBMIT);
 
         $this->assertSame(0, $this->count_queued_tasks());
     }
 
-    public function test_nothing_is_queued_when_assignments_are_not_covered(): void {
-        set_config('enable_mod_assign', 0, 'plagiarism_dixeo');
+    public function test_nothing_is_queued_when_the_dixeo_feedback_default_is_off(): void {
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
 
         $this->fire_submission_event(analysis_gate::TRIGGER_SUBMIT);
 
@@ -283,7 +287,7 @@ final class automation_test extends \advanced_testcase {
             'userid' => (int) $this->student->id,
             'submissionid' => $this->submissionid,
         ]);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '0']);
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
 
         $sink = $this->redirectEvents();
         ob_start();

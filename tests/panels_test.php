@@ -64,8 +64,8 @@ final class panels_test extends \advanced_testcase {
         $this->resetAfterTest();
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
 
         $generator = $this->getDataGenerator();
         $this->course = $generator->create_course();
@@ -75,8 +75,6 @@ final class panels_test extends \advanced_testcase {
         $this->student = $generator->create_and_enrol($this->course, 'student');
         $this->classmate = $generator->create_and_enrol($this->course, 'student');
         $this->teacher = $generator->create_and_enrol($this->course, 'editingteacher');
-
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, ['use_dixeo' => '1']);
 
         global $DB;
         $now = time();
@@ -161,9 +159,9 @@ final class panels_test extends \advanced_testcase {
         $this->assertStringContainsString('Consistent with earlier work.', $html);
     }
 
-    public function test_nothing_renders_when_the_activity_opts_out(): void {
+    public function test_nothing_renders_when_the_course_turns_feedback_off(): void {
         $this->store_record();
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, ['use_dixeo' => '0']);
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
 
         $this->assertSame('', $this->render_as($this->student));
         $this->assertSame('', $this->render_as($this->teacher));
@@ -171,7 +169,7 @@ final class panels_test extends \advanced_testcase {
 
     public function test_nothing_renders_when_the_site_setting_is_off(): void {
         $this->store_record();
-        set_config('enable_mod_assign', 0, 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
 
         $this->assertSame('', $this->render_as($this->student));
     }
@@ -289,7 +287,7 @@ final class panels_test extends \advanced_testcase {
             $plugin->print_disclosure((int) $this->cm->id)
         );
 
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, ['use_dixeo' => '0']);
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
         $this->assertSame('', $plugin->print_disclosure((int) $this->cm->id));
     }
 }
