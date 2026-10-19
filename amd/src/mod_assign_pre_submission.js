@@ -469,16 +469,30 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
      * @returns {boolean}
      */
     function allQuestionsAnswered(ctx) {
-        var i, q, id, value;
+        var i;
         for (i = 0; i < ctx.questions.length; i++) {
-            q = ctx.questions[i];
-            id = questionId(q, i);
-            value = ctx.responses[id];
-            if (value === undefined || value === null || String(value).trim() === '') {
+            if (!questionHasAnswer(ctx, i)) {
                 return false;
             }
         }
         return ctx.questions.length > 0;
+    }
+
+    /**
+     * Whether the question at index has a non-empty saved answer.
+     *
+     * @param {object} ctx Pager state.
+     * @param {number} index Question index.
+     * @returns {boolean}
+     */
+    function questionHasAnswer(ctx, index) {
+        var question = ctx.questions[index];
+        var value;
+        if (!question) {
+            return false;
+        }
+        value = ctx.responses[questionId(question, index)];
+        return value !== undefined && value !== null && String(value).trim() !== '';
     }
 
     /**
@@ -779,16 +793,12 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
              * Move to another question, persisting the current answer first.
              *
              * @param {number} nextIndex Index to show.
-             * @param {boolean} fromLock When true, apply the next-button delay as after a timeout.
              */
-            function goToQuestion(nextIndex, fromLock) {
+            function goToQuestion(nextIndex) {
                 if (nextIndex < 0 || nextIndex >= ctx.questions.length) {
                     return;
                 }
                 captureResponseFromBody(body, ctx);
-                if (fromLock || (!ctx.allowBackwards && nextIndex > ctx.currentIndex)) {
-                    ctx.nextUnlockAt = Math.floor(Date.now() / 1000) + ctx.nextDelaySec;
-                }
                 ctx.currentIndex = nextIndex;
                 ctx.visited[ctx.currentIndex] = true;
                 if (!timer) {
@@ -823,10 +833,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                     lockCurrentQuestionInputs(body, ctx);
                 }
 
-                var prevDisabled = !ctx.allowBackwards || ctx.currentIndex === 0;
+                var prevDisabled = true;
                 var showNext = ctx.currentIndex < ctx.questions.length - 1;
-                var nowSec = Math.floor(Date.now() / 1000);
-                var nextDisabled = showNext && !ctx.allowBackwards && ctx.nextUnlockAt > nowSec;
+                var nextDisabled = showNext && !questionHasAnswer(ctx, ctx.currentIndex);
                 var timers = timerFooterState(timer);
                 var leftBtns = verificationNavHtml(ctx.strings, prevDisabled, showNext, nextDisabled);
 
@@ -849,16 +858,15 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                     escapeHtml(ctx.strings.submit) + '</button>' +
                     '</div>';
 
-                bindVerificationFooter(nextDisabled);
+                bindVerificationFooter();
                 updateSubmitState();
             }
 
             /**
              * Attach footer control handlers after the pager HTML is rebuilt.
              *
-             * @param {boolean} nextDisabled Whether Next starts locked.
              */
-            function bindVerificationFooter(nextDisabled) {
+            function bindVerificationFooter() {
                 confirmCb = footer.querySelector('.plagiarism-dixeo-confirm-checkbox');
                 submitBtn = footer.querySelector('.plagiarism-dixeo-verification-submit');
                 var prevBtnEl = footer.querySelector('.plagiarism-dixeo-verification-prev');
@@ -890,15 +898,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                         }
                         goToQuestion(ctx.currentIndex + 1, false);
                     });
-                    if (nextDisabled) {
-                        var unlockAt = ctx.nextUnlockAt;
-                        var check = setInterval(function() {
-                            if (Math.floor(Date.now() / 1000) >= unlockAt) {
-                                nextBtnEl.disabled = false;
-                                clearInterval(check);
-                            }
-                        }, 500);
-                    }
                 }
                 if (cancelBtn) {
                     cancelBtn.addEventListener('click', function() {
@@ -935,7 +934,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 }
                 ctx.lockToNextTimeout = setTimeout(function() {
                     ctx.lockToNextTimeout = null;
-                    goToQuestion(ctx.currentIndex + 1, true);
+                    goToQuestion(ctx.currentIndex + 1);
                 }, LOCK_TO_NEXT_DELAY_MS);
             }
 
@@ -953,14 +952,21 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
 
             $modal.modal({backdrop: 'static', keyboard: false});
 
-            body.addEventListener('change', function() {
+            body.addEventListener('change', refreshAnswerControls);
+            body.addEventListener('input', refreshAnswerControls);
+
+            /**
+             * Keep Next and Submit in step with the answer the student has just entered.
+             */
+            function refreshAnswerControls() {
+                var nextBtnEl;
                 captureResponseFromBody(body, ctx);
                 updateSubmitState();
-            });
-            body.addEventListener('input', function() {
-                captureResponseFromBody(body, ctx);
-                updateSubmitState();
-            });
+                nextBtnEl = footer.querySelector('.plagiarism-dixeo-verification-next');
+                if (nextBtnEl) {
+                    nextBtnEl.disabled = !questionHasAnswer(ctx, ctx.currentIndex);
+                }
+            }
 
             timer = new QuizTimer({
                 recordId: recordId,
@@ -980,13 +986,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                     submitQuiz();
                 },
                 onQuestionExpire: onQuestionExpire,
-                onState: function(state) {
-                    if (typeof state.allow_backwards === 'boolean') {
-                        ctx.allowBackwards = state.allow_backwards;
-                    }
-                    if (typeof state.next_button_delay === 'number') {
-                        ctx.nextDelaySec = state.next_button_delay;
-                    }
+                onState: function() {
+                    ctx.allowBackwards = false;
+                    ctx.nextDelaySec = 0;
                 }
             });
 
@@ -1013,8 +1015,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                     ctx.questions = questions;
                     ctx.responses = answers && typeof answers === 'object' ? answers : {};
                     ctx.currentIndex = Math.max(0, Math.min(questions.length - 1, quiz.current_index || 0));
-                    ctx.allowBackwards = !!quiz.allow_backwards;
-                    ctx.nextDelaySec = quiz.next_button_delay || 0;
+                    ctx.allowBackwards = false;
+                    ctx.nextDelaySec = 0;
                     ctx.visited[ctx.currentIndex] = true;
                     renderQuestionScreen();
                     return null;
