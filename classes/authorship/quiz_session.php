@@ -48,8 +48,17 @@ class quiz_session {
     /** @var int Longest accepted quiz time limit, in seconds. */
     public const MAX_TIME_LIMIT = 2 * HOURSECS;
 
-    /** @var int Longest accepted delay on the next button, in seconds. */
-    public const MAX_NEXT_BUTTON_DELAY = 60;
+    /** @var int Seconds allowed for the whole verification quiz. */
+    public const TOTAL_TIME_LIMIT = 180;
+
+    /** @var int Seconds allowed for one true/false question. */
+    public const QUESTION_TIME_TRUE_FALSE = 60;
+
+    /** @var int Seconds allowed for one multiple choice question. */
+    public const QUESTION_TIME_MULTIPLE_CHOICE = 60;
+
+    /** @var int Seconds allowed for one open question. */
+    public const QUESTION_TIME_OPEN = 180;
 
     /**
      * Decode a JSON payload sent by the browser.
@@ -388,7 +397,7 @@ class quiz_session {
      * @return int Seconds, or 0 for no limit.
      */
     public static function get_total_time_limit(): int {
-        return self::get_time_setting('quiz_total_time', 180);
+        return self::TOTAL_TIME_LIMIT;
     }
 
     /**
@@ -401,15 +410,13 @@ class quiz_session {
      * @return int Seconds, or 0 for no limit.
      */
     public static function get_question_time_limit(string $type): int {
-        $settings = [
-            authorship::QUESTION_TYPE_TRUE_FALSE => ['quiz_time_true_false', 60],
-            authorship::QUESTION_TYPE_MULTIPLE_CHOICE => ['quiz_time_multiple_choice', 60],
-            authorship::QUESTION_TYPE_OPEN => ['quiz_time_open', 180],
+        $limits = [
+            authorship::QUESTION_TYPE_TRUE_FALSE => self::QUESTION_TIME_TRUE_FALSE,
+            authorship::QUESTION_TYPE_MULTIPLE_CHOICE => self::QUESTION_TIME_MULTIPLE_CHOICE,
+            authorship::QUESTION_TYPE_OPEN => self::QUESTION_TIME_OPEN,
         ];
 
-        [$name, $default] = $settings[$type] ?? $settings[authorship::QUESTION_TYPE_OPEN];
-
-        return self::get_time_setting($name, $default);
+        return $limits[$type] ?? self::QUESTION_TIME_OPEN;
     }
 
     /**
@@ -418,19 +425,16 @@ class quiz_session {
      * @return bool
      */
     public static function allows_backwards_navigation(): bool {
-        return (int) get_config('plagiarism_dixeo', 'allow_backwards_navigation') === 1;
+        return false;
     }
 
     /**
-     * How long the next button stays disabled after a click.
+     * Next is disabled until the current question has an answer, so there is no timed delay.
      *
      * @return int Seconds.
      */
     public static function get_next_button_delay(): int {
-        $value = get_config('plagiarism_dixeo', 'next_button_delay_seconds');
-        $seconds = ($value === false || $value === null) ? 3 : (int) $value;
-
-        return max(0, min($seconds, self::MAX_NEXT_BUTTON_DELAY));
+        return 0;
     }
 
     /**
@@ -453,19 +457,5 @@ class quiz_session {
         }
 
         return $accepted;
-    }
-
-    /**
-     * Read a duration setting, clamped to the range the settings form accepts.
-     *
-     * @param string $name Setting name.
-     * @param int $default Value to use when the setting has never been saved.
-     * @return int Seconds.
-     */
-    private static function get_time_setting(string $name, int $default): int {
-        $value = get_config('plagiarism_dixeo', $name);
-        $seconds = ($value === false || $value === null) ? $default : (int) $value;
-
-        return max(0, min($seconds, self::MAX_TIME_LIMIT));
     }
 }

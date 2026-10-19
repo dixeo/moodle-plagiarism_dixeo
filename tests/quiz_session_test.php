@@ -78,7 +78,6 @@ final class quiz_session_test extends \advanced_testcase {
     }
 
     public function test_starting_twice_resumes_rather_than_resets_the_clock(): void {
-        set_config('quiz_total_time', 300, 'plagiarism_dixeo');
         $record = $this->create_quiz_record();
 
         [$first, $juststarted] = quiz_session::start($record);
@@ -92,7 +91,6 @@ final class quiz_session_test extends \advanced_testcase {
     }
 
     public function test_the_clock_keeps_running_while_the_page_is_closed(): void {
-        set_config('quiz_total_time', 300, 'plagiarism_dixeo');
         $record = $this->create_quiz_record();
         quiz_session::start($record);
 
@@ -100,8 +98,8 @@ final class quiz_session_test extends \advanced_testcase {
         $reloaded = author_storage::get_record((int) $record->id);
         $state = quiz_session::load($reloaded);
 
-        $this->assertSame(300, $state['expires_at'] - $state['started_at']);
-        $this->assertLessThanOrEqual(300, quiz_session::remaining_seconds($state));
+        $this->assertSame(quiz_session::TOTAL_TIME_LIMIT, $state['expires_at'] - $state['started_at']);
+        $this->assertLessThanOrEqual(quiz_session::TOTAL_TIME_LIMIT, quiz_session::remaining_seconds($state));
         $this->assertFalse(quiz_session::is_expired($state));
     }
 
@@ -113,15 +111,15 @@ final class quiz_session_test extends \advanced_testcase {
         $this->assertSame(0, quiz_session::remaining_seconds($state));
     }
 
-    public function test_a_quiz_without_a_time_limit_never_expires(): void {
+    public function test_the_quiz_uses_the_fixed_time_limit(): void {
         set_config('quiz_total_time', 0, 'plagiarism_dixeo');
         $record = $this->create_quiz_record();
 
         [$state] = quiz_session::start($record);
 
-        $this->assertSame(0, $state['expires_at']);
-        $this->assertNull(quiz_session::remaining_seconds($state));
-        $this->assertFalse(quiz_session::is_expired($state));
+        $this->assertSame(quiz_session::TOTAL_TIME_LIMIT, $state['expires_at'] - $state['started_at']);
+        $this->assertFalse(quiz_session::allows_backwards_navigation());
+        $this->assertSame(0, quiz_session::get_next_button_delay());
     }
 
     public function test_progress_is_merged_so_a_partial_save_keeps_earlier_answers(): void {
@@ -182,21 +180,19 @@ final class quiz_session_test extends \advanced_testcase {
     }
 
     public function test_reported_times_are_clamped_to_the_quiz_length(): void {
-        set_config('quiz_total_time', 120, 'plagiarism_dixeo');
-
         $accepted = quiz_session::validate_timings(
             ['q1' => -5, 'q2' => 99999, 'q3' => 30, 'q1extra' => 'nonsense'],
             ['q1', 'q2', 'q3']
         );
 
-        $this->assertSame(['q1' => 0, 'q2' => 120, 'q3' => 30], $accepted);
+        $this->assertSame(['q1' => 0, 'q2' => quiz_session::TOTAL_TIME_LIMIT, 'q3' => 30], $accepted);
     }
 
-    public function test_settings_outside_the_accepted_range_are_clamped(): void {
+    public function test_removed_timer_settings_do_not_change_the_fixed_limits(): void {
         set_config('quiz_total_time', 999999, 'plagiarism_dixeo');
         set_config('next_button_delay_seconds', -4, 'plagiarism_dixeo');
 
-        $this->assertSame(quiz_session::MAX_TIME_LIMIT, quiz_session::get_total_time_limit());
+        $this->assertSame(quiz_session::TOTAL_TIME_LIMIT, quiz_session::get_total_time_limit());
         $this->assertSame(0, quiz_session::get_next_button_delay());
     }
 
@@ -251,9 +247,12 @@ final class quiz_session_test extends \advanced_testcase {
         set_config('quiz_time_multiple_choice', 25, 'plagiarism_dixeo');
         set_config('quiz_time_open', 90, 'plagiarism_dixeo');
 
-        $this->assertSame(15, quiz_session::get_question_time_limit('true_false'));
-        $this->assertSame(25, quiz_session::get_question_time_limit('multiple_choice'));
-        $this->assertSame(90, quiz_session::get_question_time_limit('open'));
-        $this->assertSame(90, quiz_session::get_question_time_limit('unknown_type'));
+        $this->assertSame(quiz_session::QUESTION_TIME_TRUE_FALSE, quiz_session::get_question_time_limit('true_false'));
+        $this->assertSame(
+            quiz_session::QUESTION_TIME_MULTIPLE_CHOICE,
+            quiz_session::get_question_time_limit('multiple_choice')
+        );
+        $this->assertSame(quiz_session::QUESTION_TIME_OPEN, quiz_session::get_question_time_limit('open'));
+        $this->assertSame(quiz_session::QUESTION_TIME_OPEN, quiz_session::get_question_time_limit('unknown_type'));
     }
 }
