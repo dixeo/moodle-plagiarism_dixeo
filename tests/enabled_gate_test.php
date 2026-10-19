@@ -105,9 +105,9 @@ final class enabled_gate_test extends \advanced_testcase {
     }
 
     /**
-     * The assignment form adds no Dixeo fields while the course is off.
+     * The assignment form keeps the settings button when the course master switch is off.
      */
-    public function test_assignment_form_adds_no_fields_when_the_course_is_off(): void {
+    public function test_assignment_form_keeps_the_settings_button_when_the_course_is_off(): void {
         global $CFG, $PAGE;
 
         $this->resetAfterTest();
@@ -132,8 +132,18 @@ final class enabled_gate_test extends \advanced_testcase {
         $property = new \ReflectionProperty($form, '_form');
         $property->setAccessible(true);
         $quickform = $property->getValue($form);
-        $this->assertFalse($quickform->elementExists('use_dixeo'));
-        $this->assertFalse($quickform->elementExists('plagiarism_dixeo'));
+        $this->assertTrue($quickform->elementExists('plagiarism_dixeo'));
+        $this->assertTrue($quickform->elementExists('plagiarism_dixeo_settings_intro'));
+        $intro = $quickform->getElement('plagiarism_dixeo_settings_intro');
+        $this->assertStringContainsString(get_string('settings_form_label', 'plagiarism_dixeo'), $intro->toHtml());
+        $this->assertTrue($quickform->elementExists('plagiarism_dixeo_settings_open'));
+        $button = $quickform->getElement('plagiarism_dixeo_settings_open');
+        $this->assertSame('feature:assignment', $button->getAttribute('data-initial'));
+        $this->assertSame((string) \context_module::instance($cm->id)->id, $button->getAttribute('data-contextid'));
+        $this->assertNotEmpty($button->getAttribute('data-activity-name'));
+        $this->assertNotEmpty($button->getAttribute('data-course-name'));
+        $this->assertFalse($quickform->elementExists('enable_auto_grading'));
+        $this->assertFalse($quickform->elementExists('authorship_threshold'));
     }
 
     /**
@@ -174,15 +184,14 @@ final class enabled_gate_test extends \advanced_testcase {
         global $CFG, $DB;
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
         set_config('assign_trigger', 'submit', 'plagiarism_dixeo');
 
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
         $cm = get_coursemodule_from_instance('assign', $assign->id, $course->id, false, MUST_EXIST);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
-        \plagiarism_plugin_dixeo::set_activity_config((int) $cm->id, ['use_dixeo' => '1']);
 
         $now = time();
         $submissionid = (int) $DB->insert_record('assign_submission', (object) [
