@@ -62,15 +62,13 @@ final class verification_externals_test extends \advanced_testcase {
 
         parent::setUp();
         $this->resetAfterTest(true);
-        set_config('quiz_total_time', 300, 'plagiarism_dixeo');
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
 
         $this->course = $this->getDataGenerator()->create_course();
         $this->assign = $this->getDataGenerator()->create_module('assign', ['course' => $this->course->id]);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '1']);
         $this->student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
 
         $now = time();
@@ -123,7 +121,7 @@ final class verification_externals_test extends \advanced_testcase {
         $events = $sink->get_events();
 
         $this->assertFalse($result['expired']);
-        $this->assertSame(300, $result['expires_at'] - $result['started_at']);
+        $this->assertSame(quiz_session::TOTAL_TIME_LIMIT, $result['expires_at'] - $result['started_at']);
         $this->assertGreaterThan(0, $result['remaining']);
         $this->assertGreaterThan(0, $result['question_remaining']);
 

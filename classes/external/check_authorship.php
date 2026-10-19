@@ -79,7 +79,8 @@ class check_authorship extends external_api {
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
         $courseid = (int) $cm->course;
 
-        if (!authorship::is_enabled()) {
+        $coursecontext = \context_course::instance($courseid);
+        if (!authorship::is_enabled($coursecontext)) {
             return self::result_payload(100.0, 0, '', '', 'completed', $courseid);
         }
 
@@ -123,7 +124,11 @@ class check_authorship extends external_api {
             $quizdata = null;
             $lastjobid = $confidenceop->jobid;
 
-            if (authorship::is_quiz_required($score)) {
+            $activity = \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id);
+            if (
+                \plagiarism_dixeo\feature_settings::verification_quiz_on(\context_module::instance((int) $cm->id))
+                && authorship::is_quiz_required($score, (float) $activity['authorship_threshold'])
+            ) {
                 $counts = authorship::get_question_counts();
                 $quizop = $service->submit_authorship_and_wait(
                     $courseid,
@@ -176,7 +181,8 @@ class check_authorship extends external_api {
                 '',
                 'completed',
                 $courseid,
-                $lastjobid
+                $lastjobid,
+                (float) $activity['authorship_threshold']
             );
         } catch (\required_capability_exception | \require_login_exception $e) {
             throw $e;
@@ -196,6 +202,7 @@ class check_authorship extends external_api {
      * @param string $status Status.
      * @param int $courseid Course id.
      * @param string $jobid Job id.
+     * @param float|null $threshold Assignment threshold, or null for the Dixeo default.
      * @return array
      */
     protected static function result_payload(
@@ -205,11 +212,12 @@ class check_authorship extends external_api {
         string $errormessage,
         string $status,
         int $courseid,
-        string $jobid = ''
+        string $jobid = '',
+        ?float $threshold = null
     ): array {
         return [
             'score' => $score,
-            'threshold' => (float) authorship::get_confidence_threshold(),
+            'threshold' => $threshold ?? (float) authorship::get_confidence_threshold(),
             'record_id' => $recordid,
             'quiz_html' => $quizhtml,
             'jobid' => $jobid,

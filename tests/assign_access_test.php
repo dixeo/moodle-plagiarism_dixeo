@@ -52,9 +52,8 @@ final class assign_access_test extends \advanced_testcase {
         global $CFG;
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
-        \plagiarism_plugin_dixeo::set_activity_config($cmid, ['use_dixeo' => '1']);
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
     }
 
     public function test_student_can_analyze_own_module(): void {
@@ -94,7 +93,7 @@ final class assign_access_test extends \advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
         $this->enable_dixeo((int) $assign->cmid);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, ['use_dixeo' => '0']);
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $this->setUser($student);
 
@@ -107,7 +106,7 @@ final class assign_access_test extends \advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
         $this->enable_dixeo((int) $assign->cmid);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, ['use_dixeo' => '0']);
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
         $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
         $this->setUser($teacher);
 
@@ -121,7 +120,6 @@ final class assign_access_test extends \advanced_testcase {
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
         $this->enable_dixeo((int) $assign->cmid);
         \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, [
-            'use_dixeo' => '1',
             'enable_auto_grading' => '0',
         ]);
         $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');

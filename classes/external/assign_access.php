@@ -63,6 +63,7 @@ final class assign_access {
         require_capability('plagiarism/dixeo:mod_assign_grade_submission', $context);
         require_capability('mod/assign:grade', $context);
         self::require_activity_enabled($cmid);
+        self::require_grading_enabled($cmid);
         return $context;
     }
 
@@ -82,6 +83,18 @@ final class assign_access {
 
         if (!\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
             throw new \moodle_exception('activity_not_enabled', 'plagiarism_dixeo');
+        }
+    }
+
+    /**
+     * Refuse Assist Grade when this assignment's grading switch is off.
+     *
+     * @param int $cmid Assign course module id.
+     * @throws \moodle_exception
+     */
+    public static function require_grading_enabled(int $cmid): void {
+        if ($cmid <= 0 || !\plagiarism_dixeo\feature_settings::grading_on(\context_module::instance($cmid))) {
+            throw new \moodle_exception('grading_not_enabled', 'plagiarism_dixeo');
         }
     }
 

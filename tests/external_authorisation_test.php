@@ -84,9 +84,8 @@ final class external_authorisation_test extends \advanced_testcase {
         global $CFG;
 
         $CFG->enableplagiarism = 1;
-        set_config('enabled', 1, 'plagiarism_dixeo');
-        set_config('enable_mod_assign', 1, 'plagiarism_dixeo');
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '1']);
+        set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('grading_enabled', 1, 'plagiarism_dixeo');
     }
 
     /**
@@ -204,7 +203,7 @@ final class external_authorisation_test extends \advanced_testcase {
 
     public function test_pre_submission_refuses_when_the_activity_is_off(): void {
         $this->enable_dixeo();
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '0']);
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
         $this->setUser($this->student);
 
         $this->expectException(\moodle_exception::class);
@@ -214,7 +213,7 @@ final class external_authorisation_test extends \advanced_testcase {
 
     public function test_grade_submission_refuses_when_the_activity_is_off(): void {
         $this->enable_dixeo();
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['use_dixeo' => '0']);
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
         $this->setUser($this->teacher);
 
         $this->expectException(\moodle_exception::class);

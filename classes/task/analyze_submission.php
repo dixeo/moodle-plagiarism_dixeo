@@ -176,7 +176,8 @@ class analyze_submission extends \core\task\adhoc_task {
     ): void {
         global $DB;
 
-        if (!authorship::is_enabled()) {
+        $coursecontext = \context_course::instance($courseid);
+        if (!authorship::is_enabled($context)) {
             return;
         }
 
@@ -190,7 +191,12 @@ class analyze_submission extends \core\task\adhoc_task {
         $score = (float) $confidence['confidence'];
 
         $quizdata = null;
-        if (authorship::is_quiz_required($score) && self::is_verification_test_enabled()) {
+        $config = \plagiarism_plugin_dixeo::get_activity_config($cmid);
+        $threshold = (float) $config['authorship_threshold'];
+        if (
+            \plagiarism_dixeo\feature_settings::verification_quiz_on($context)
+            && authorship::is_quiz_required($score, $threshold)
+        ) {
             $counts = authorship::get_question_counts();
             $quiz = $this->run_authorship_step(
                 $service,
@@ -260,15 +266,6 @@ class analyze_submission extends \core\task\adhoc_task {
         }
 
         return $mapped;
-    }
-
-    /**
-     * Whether a verification quiz may be set when confidence is low.
-     *
-     * @return bool
-     */
-    private static function is_verification_test_enabled(): bool {
-        return (int) get_config('plagiarism_dixeo', 'verification_test') === 1;
     }
 
     /**
