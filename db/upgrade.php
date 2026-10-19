@@ -150,5 +150,37 @@ function xmldb_plagiarism_dixeo_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026092501, 'plagiarism', 'dixeo');
     }
 
+    if ($oldversion < 2026101900) {
+        $wasenabled = (int) get_config('plagiarism_dixeo', 'enabled') === 1
+            && (int) get_config('plagiarism_dixeo', 'enable_mod_assign') === 1;
+        if ($wasenabled) {
+            set_config('assignment_feedback_enabled', '1', 'plagiarism_dixeo');
+            set_config('grading_enabled', '1', 'plagiarism_dixeo');
+        }
+
+        $obsolete = [
+            'enabled',
+            'enable_mod_assign',
+            'authorship_count_true_false',
+            'authorship_count_multiple_choice',
+            'authorship_count_open',
+            'quiz_total_time',
+            'quiz_time_true_false',
+            'quiz_time_multiple_choice',
+            'quiz_time_open',
+            'allow_backwards_navigation',
+            'next_button_delay_seconds',
+        ];
+        foreach ($obsolete as $name) {
+            unset_config($name, 'plagiarism_dixeo');
+        }
+
+        if ($dbman->table_exists('plagiarism_dixeo_config')) {
+            $DB->delete_records('plagiarism_dixeo_config', ['name' => 'use_dixeo']);
+        }
+
+        upgrade_plugin_savepoint(true, 2026101900, 'plagiarism', 'dixeo');
+    }
+
     return true;
 }
