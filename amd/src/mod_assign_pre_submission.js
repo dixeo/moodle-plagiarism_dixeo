@@ -706,9 +706,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             var title = labels[0];
             var confirmLabel = labels[1];
             var submitLabel = labels[2];
-            var cancelLabel = labels[3];
-            var closeLabel = labels[4];
-            var loadError = labels[5];
+            var closeLabel = labels[3];
+            var loadError = labels[4];
 
             var existing = document.getElementById(QUIZ_MODAL_ID);
             if (existing && existing.parentNode) {
@@ -728,12 +727,20 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             content.className = 'modal-content';
 
             var header = document.createElement('div');
-            header.className = 'modal-header';
+            header.className = 'modal-header plagiarism-dixeo-verification-header';
             var titleEl = document.createElement('h5');
-            titleEl.className = 'modal-title';
+            titleEl.className = 'modal-title plagiarism-dixeo-verification-title';
             titleEl.textContent = title;
+            var counterWrap = document.createElement('span');
+            counterWrap.className = 'plagiarism-dixeo-verification-counter-wrap';
             var counterEl = document.createElement('span');
-            counterEl.className = 'plagiarism-dixeo-verification-counter ml-3';
+            counterEl.className = 'plagiarism-dixeo-verification-counter';
+            counterEl.setAttribute('aria-hidden', 'true');
+            var donutEl = document.createElement('span');
+            donutEl.className = 'plagiarism-dixeo-verification-donut';
+            donutEl.setAttribute('aria-hidden', 'true');
+            counterWrap.appendChild(counterEl);
+            counterWrap.appendChild(donutEl);
             var closeBtn = document.createElement('button');
             closeBtn.type = 'button';
             closeBtn.className = 'close';
@@ -741,7 +748,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             closeBtn.setAttribute('aria-label', closeLabel);
             closeBtn.innerHTML = '<span aria-hidden="true">&times;</span>';
             header.appendChild(titleEl);
-            header.appendChild(counterEl);
+            header.appendChild(counterWrap);
             header.appendChild(closeBtn);
 
             var body = document.createElement('div');
@@ -767,21 +774,20 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 allowBackwards: false,
                 nextDelaySec: 0,
                 nextUnlockAt: 0,
-                confirmed: false,
                 submitting: false,
+                confirmed: false,
                 lockToNextTimeout: null,
                 strings: {
-                    previous: labels[6],
-                    next: labels[7],
+                    previous: labels[5],
+                    next: labels[6],
                     submit: submitLabel,
                     confirm: confirmLabel,
-                    cancel: cancelLabel,
-                    timerTestTooltip: labels[8],
-                    timerQuestionTooltip: labels[9],
-                    questionLocked: labels[10],
-                    questionLockedTooltip: labels[11],
-                    trueLabel: labels[12],
-                    falseLabel: labels[13]
+                    timerTestTooltip: labels[7],
+                    timerQuestionTooltip: labels[8],
+                    questionLocked: labels[9],
+                    questionLockedTooltip: labels[10],
+                    trueLabel: labels[11],
+                    falseLabel: labels[12]
                 }
             };
             var timer = null;
@@ -789,7 +795,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             var submitBtn = null;
 
             /**
-             * Enable Submit once every question has an answer and the student has confirmed.
+             * Enable Submit once every question has an answer and the student has confirmed authorship.
              */
             function updateSubmitState() {
                 if (!submitBtn || ctx.submitting) {
@@ -863,7 +869,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 var total = ctx.questions.length;
                 var current = ctx.currentIndex + 1;
                 var qId = questionId(q, ctx.currentIndex);
+                var pct = total > 0 ? (current / total) * 100 : 0;
                 counterEl.textContent = current + '/' + total;
+                donutEl.style.setProperty('--p', String(pct));
 
                 body.innerHTML = '<div class="plagiarism-dixeo-question-content">' +
                     renderOneQuestionHtml(q, qId, ctx.responses[qId], ctx.strings, current) + '</div>';
@@ -878,21 +886,22 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 var leftBtns = verificationNavHtml(ctx.strings, prevDisabled, showNext, nextDisabled);
 
                 footer.innerHTML =
-                    '<div class="plagiarism-dixeo-verification-footer__left">' + leftBtns + '</div>' +
-                    '<div class="plagiarism-dixeo-verification-footer__right">' +
+                    '<div class="plagiarism-dixeo-verification-footer__meta">' +
                     '<label class="mb-0 plagiarism-dixeo-confirm-label">' +
                     '<input type="checkbox" class="plagiarism-dixeo-confirm-checkbox"> ' +
                     escapeHtml(ctx.strings.confirm) + '</label>' +
+                    '<span class="plagiarism-dixeo-verification-footer__clocks">' +
                     '<span class="plagiarism-dixeo-footer-total-timer" title="' +
                     escapeHtml(ctx.strings.timerTestTooltip) + '" style="display:' + timers.totalDisplay + '">' +
                     ICON_CLOCK + ' <span class="plagiarism-dixeo-timer-value plagiarism-dixeo-quiz-countdown">' +
                     timers.totalValue + '</span></span>' +
-                    ' <span class="plagiarism-dixeo-footer-question-timer" title="' +
+                    '<span class="plagiarism-dixeo-footer-question-timer" title="' +
                     escapeHtml(ctx.strings.timerQuestionTooltip) + '" style="display:' + timers.qDisplay + '">' +
                     ICON_QUESTION + ' <span class="plagiarism-dixeo-timer-value">' + timers.qValue + '</span></span>' +
-                    ' <button type="button" class="btn btn-secondary plagiarism-dixeo-quiz-cancel">' +
-                    escapeHtml(ctx.strings.cancel) + '</button>' +
-                    ' <button type="button" class="btn btn-success plagiarism-dixeo-verification-submit" disabled>' +
+                    '</span></div>' +
+                    '<div class="plagiarism-dixeo-verification-footer__actions">' +
+                    '<div class="plagiarism-dixeo-verification-footer__left">' + leftBtns + '</div>' +
+                    '<button type="button" class="btn btn-success plagiarism-dixeo-verification-submit" disabled>' +
                     escapeHtml(ctx.strings.submit) + '</button>' +
                     '</div>';
 
@@ -909,7 +918,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 submitBtn = footer.querySelector('.plagiarism-dixeo-verification-submit');
                 var prevBtnEl = footer.querySelector('.plagiarism-dixeo-verification-prev');
                 var nextBtnEl = footer.querySelector('.plagiarism-dixeo-verification-next');
-                var cancelBtn = footer.querySelector('.plagiarism-dixeo-quiz-cancel');
                 var totalDisplayEl = footer.querySelector('.plagiarism-dixeo-quiz-countdown');
                 var questionDisplayEl = footer.querySelector(
                     '.plagiarism-dixeo-footer-question-timer .plagiarism-dixeo-timer-value'
@@ -935,11 +943,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                             return;
                         }
                         goToQuestion(ctx.currentIndex + 1, false);
-                    });
-                }
-                if (cancelBtn) {
-                    cancelBtn.addEventListener('click', function() {
-                        $modal.modal('hide');
                     });
                 }
                 if (submitBtn) {
@@ -1065,8 +1068,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
         Promise.all([
             Str.get_string('authorship_quiz_modal_title', 'plagiarism_dixeo'),
             Str.get_string('authorship_confirm_statement', 'plagiarism_dixeo'),
-            Str.get_string('authorship_confirm_and_submit', 'plagiarism_dixeo'),
-            Str.get_string('authorship_cancel', 'plagiarism_dixeo'),
+            Str.get_string('verification_submit', 'plagiarism_dixeo'),
             Str.get_string('close', 'plagiarism_dixeo'),
             Str.get_string('authorship_quiz_load_error', 'plagiarism_dixeo'),
             Str.get_string('verification_previous', 'plagiarism_dixeo'),
