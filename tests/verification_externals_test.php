@@ -151,6 +151,7 @@ final class verification_externals_test extends \advanced_testcase {
         $this->assertCount(2, $questions);
         $this->assertStringNotContainsString('correct', $result['questions']);
         $this->assertArrayNotHasKey('correct', $questions[0]);
+        $this->assertSame('{}', $result['answers']);
     }
 
     public function test_saved_answers_come_back_so_the_student_can_resume(): void {

@@ -64,6 +64,12 @@ final class quiz_session_test extends \advanced_testcase {
         return $record;
     }
 
+    public function test_an_empty_answer_map_is_stored_as_a_json_object(): void {
+        $record = $this->create_quiz_record(['quiz_responses' => []]);
+
+        $this->assertSame('{}', $record->quiz_responses);
+    }
+
     public function test_correct_answers_never_leave_the_server(): void {
         $record = $this->create_quiz_record();
 

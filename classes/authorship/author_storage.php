@@ -222,11 +222,17 @@ class author_storage {
         }
 
         foreach (['quiz_responses', 'response_timings', 'quiz_question_feedbacks'] as $jsonfield) {
-            if (isset($data[$jsonfield])) {
-                $record->$jsonfield = is_string($data[$jsonfield])
-                    ? $data[$jsonfield]
-                    : json_encode($data[$jsonfield]);
+            if (!isset($data[$jsonfield])) {
+                continue;
             }
+            if (is_string($data[$jsonfield])) {
+                $record->$jsonfield = $data[$jsonfield];
+                continue;
+            }
+            // Answers are a map. An empty list would be sent back as "[]", which the
+            // browser cannot store question-id answers on.
+            $flags = $jsonfield === 'quiz_responses' ? JSON_FORCE_OBJECT : 0;
+            $record->$jsonfield = json_encode($data[$jsonfield], $flags);
         }
         if (isset($data['final_confidence'])) {
             $record->final_confidence = (float) $data['final_confidence'];

@@ -66,7 +66,9 @@ class get_verification_quiz extends external_api {
         return verification_access::timing_payload($state, $record) + [
             'record_id' => (int) $record->id,
             'questions' => json_encode(quiz_session::get_public_questions($record)),
-            'answers' => json_encode(quiz_session::get_answers($record)),
+            // An empty map must be "{}", not "[]". The browser keeps answers on that
+            // object, and JSON.stringify drops question-id properties set on an array.
+            'answers' => json_encode(quiz_session::get_answers($record), JSON_FORCE_OBJECT),
         ];
     }
 
