@@ -65,6 +65,7 @@ final class verification_externals_test extends \advanced_testcase {
 
         $CFG->enableplagiarism = 1;
         set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('authorship_enabled', 1, 'plagiarism_dixeo');
         set_config('grading_enabled', 1, 'plagiarism_dixeo');
 
         $this->course = $this->getDataGenerator()->create_course();

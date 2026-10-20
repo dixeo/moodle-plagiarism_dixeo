@@ -75,12 +75,12 @@ class check_authorship extends external_api {
             throw new \moodle_exception('invalidparameter');
         }
 
-        assign_access::require_student_analyze($params['id']);
+        assign_access::require_student_authorship($params['id']);
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
         $courseid = (int) $cm->course;
 
-        $coursecontext = \context_course::instance($courseid);
-        if (!authorship::is_enabled($coursecontext)) {
+        $modulecontext = \context_module::instance((int) $cm->id);
+        if (!authorship::is_enabled($modulecontext)) {
             return self::result_payload(100.0, 0, '', '', 'completed', $courseid);
         }
 

@@ -80,7 +80,7 @@ class save_verification_progress extends external_api {
         ]);
 
         $record = verification_access::require_own_open_quiz($params['record_id']);
-        assign_access::require_student_analyze_from_authorship($record);
+        assign_access::require_student_authorship_from_record($record);
 
         $state = quiz_session::load($record);
         if (quiz_session::is_expired($state)) {

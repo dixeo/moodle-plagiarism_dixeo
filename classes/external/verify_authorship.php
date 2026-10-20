@@ -75,7 +75,7 @@ class verify_authorship extends external_api {
             return self::payload(false, 0.0, '', 'failed', 0, '');
         }
 
-        $context = assign_access::require_student_analyze_from_authorship($record);
+        $context = assign_access::require_student_authorship_from_record($record);
         $cm = null;
         $courseid = 0;
         try {

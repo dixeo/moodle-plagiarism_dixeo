@@ -93,6 +93,21 @@ final class hook_output_test extends \advanced_testcase {
         );
     }
 
+    public function test_submission_page_loads_the_quiz_when_feedback_is_off(): void {
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('authorship_enabled', '1', 'plagiarism_dixeo');
+
+        $this->assertSame(
+            ['plagiarism_dixeo/mod_assign_pre_submission'],
+            $this->modules_for($this->assign_url())
+        );
+        $this->assertSame(
+            ['plagiarism_dixeo/mod_assign_pre_submission'],
+            $this->modules_for($this->assign_url(['action' => 'view']))
+        );
+        $this->assertSame([], $this->modules_for($this->assign_url(['action' => 'grader'])));
+    }
+
     public function test_no_scripts_when_the_assignment_turns_feedback_off(): void {
         \local_dixeo\external\service_factory::get_settings_config()->set(
             'plagiarism_dixeo',

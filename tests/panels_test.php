@@ -65,6 +65,7 @@ final class panels_test extends \advanced_testcase {
 
         $CFG->enableplagiarism = 1;
         set_config('assignment_feedback_enabled', 1, 'plagiarism_dixeo');
+        set_config('authorship_enabled', 1, 'plagiarism_dixeo');
         set_config('grading_enabled', 1, 'plagiarism_dixeo');
 
         $generator = $this->getDataGenerator();
@@ -159,9 +160,18 @@ final class panels_test extends \advanced_testcase {
         $this->assertStringContainsString('Consistent with earlier work.', $html);
     }
 
-    public function test_nothing_renders_when_the_course_turns_feedback_off(): void {
+    public function test_authorship_panel_renders_when_feedback_is_off(): void {
         $this->store_record();
         set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('authorship_enabled', '1', 'plagiarism_dixeo');
+
+        $this->assertStringContainsString('82.5', $this->render_as($this->student));
+    }
+
+    public function test_nothing_renders_when_feedback_and_authorship_are_off(): void {
+        $this->store_record();
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('authorship_enabled', '0', 'plagiarism_dixeo');
 
         $this->assertSame('', $this->render_as($this->student));
         $this->assertSame('', $this->render_as($this->teacher));
@@ -169,7 +179,7 @@ final class panels_test extends \advanced_testcase {
 
     public function test_nothing_renders_when_the_site_setting_is_off(): void {
         $this->store_record();
-        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('enabled', '0', 'local_dixeo');
 
         $this->assertSame('', $this->render_as($this->student));
     }

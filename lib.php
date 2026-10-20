@@ -221,7 +221,9 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
 
         $cmid = (int) ($linkarray['cmid'] ?? 0);
         $userid = (int) ($linkarray['userid'] ?? 0);
-        if ($cmid <= 0 || $userid <= 0 || !self::is_enabled_for_activity($cmid)) {
+        $feedbackon = $cmid > 0 && self::is_enabled_for_activity($cmid);
+        $authorshipon = $cmid > 0 && self::authorship_enabled_for_activity($cmid);
+        if ($cmid <= 0 || $userid <= 0 || (!$feedbackon && !$authorshipon)) {
             return '';
         }
 
@@ -261,8 +263,8 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             $itemid
         );
 
-        $html = self::format_presubmission_feedback($userid, $itemid, $context);
-        if ($record !== null) {
+        $html = $feedbackon ? self::format_presubmission_feedback($userid, $itemid, $context) : '';
+        if ($authorshipon && $record !== null) {
             $html .= self::get_links_badges_html($record, $context, self::get_activity_config($cmid), $isteacher);
         }
         if ($html === '') {
@@ -587,12 +589,43 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     }
 
     /**
-     * Whether Dixeo should act on a given assignment.
+     * Whether assignment feedback runs for this assignment.
+     *
+     * Authorship verification is a separate switch. Use {@see self::authorship_enabled_for_activity()}.
      *
      * @param int $cmid Course module id.
      * @return bool
      */
     public static function is_enabled_for_activity(int $cmid): bool {
+        return self::feature_enabled_for_activity(
+            $cmid,
+            static fn(\context $context): bool => \plagiarism_dixeo\feature_settings::assignment_feedback_on($context)
+        );
+    }
+
+    /**
+     * Whether authorship verification runs for this assignment.
+     *
+     * This does not consult the assignment feedback switch.
+     *
+     * @param int $cmid Course module id.
+     * @return bool
+     */
+    public static function authorship_enabled_for_activity(int $cmid): bool {
+        return self::feature_enabled_for_activity(
+            $cmid,
+            static fn(\context $context): bool => \plagiarism_dixeo\feature_settings::authorship_on($context)
+        );
+    }
+
+    /**
+     * Whether one assignment feature is on, after the site and course master switches.
+     *
+     * @param int $cmid Course module id.
+     * @param callable $feature Feature read at the module context.
+     * @return bool
+     */
+    private static function feature_enabled_for_activity(int $cmid, callable $feature): bool {
         global $CFG;
 
         if (empty($CFG->enableplagiarism)) {
@@ -604,7 +637,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             return false;
         }
 
-        return \plagiarism_dixeo\feature_settings::assignment_feedback_on(\context_module::instance($cmid));
+        return $feature(\context_module::instance($cmid));
     }
 
     /**

@@ -50,6 +50,26 @@ final class assign_access {
     }
 
     /**
+     * Validate module context and require the authorship verification switch.
+     *
+     * Assignment feedback is not consulted. A student can sit the verification quiz
+     * while feedback for this assignment is off.
+     *
+     * @param int $cmid Assign course module id.
+     * @return context_module
+     * @throws \moodle_exception
+     */
+    public static function require_student_authorship(int $cmid): context_module {
+        $cm = get_coursemodule_from_id('assign', $cmid, 0, false, MUST_EXIST);
+        $context = context_module::instance($cm->id);
+        external_api::validate_context($context);
+        require_capability('plagiarism/dixeo:mod_assign_pre_submission', $context);
+        require_capability('mod/assign:submit', $context);
+        self::require_authorship_enabled($cmid);
+        return $context;
+    }
+
+    /**
      * Validate module context and require teacher Assist grading capabilities.
      *
      * @param int $cmid Assign course module id.
@@ -82,6 +102,22 @@ final class assign_access {
         require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
 
         if (!\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
+            throw new \moodle_exception('activity_not_enabled', 'plagiarism_dixeo');
+        }
+    }
+
+    /**
+     * Refuse when authorship verification is off for this assignment.
+     *
+     * @param int $cmid Assign course module id.
+     * @throws \moodle_exception
+     */
+    public static function require_authorship_enabled(int $cmid): void {
+        global $CFG;
+
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
+        if (!\plagiarism_plugin_dixeo::authorship_enabled_for_activity($cmid)) {
             throw new \moodle_exception('activity_not_enabled', 'plagiarism_dixeo');
         }
     }
@@ -120,5 +156,29 @@ final class assign_access {
         );
         $cm = get_coursemodule_from_instance('assign', (int) $submission->assignment, 0, false, MUST_EXIST);
         return self::require_student_analyze((int) $cm->id);
+    }
+
+    /**
+     * Resolve module context from an authorship record and require the verification switch.
+     *
+     * @param \stdClass $record Authorship row (component, area, itemid).
+     * @return context_module
+     * @throws \moodle_exception
+     */
+    public static function require_student_authorship_from_record(\stdClass $record): context_module {
+        global $DB;
+
+        if (($record->component ?? '') !== 'mod_assign' || ($record->area ?? '') !== 'submission') {
+            throw new \moodle_exception('invalidparameter');
+        }
+
+        $submission = $DB->get_record(
+            'assign_submission',
+            ['id' => (int) $record->itemid],
+            'id,assignment',
+            MUST_EXIST
+        );
+        $cm = get_coursemodule_from_instance('assign', (int) $submission->assignment, 0, false, MUST_EXIST);
+        return self::require_student_authorship((int) $cm->id);
     }
 }
