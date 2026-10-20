@@ -479,6 +479,34 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
     }
 
     /**
+     * Plain object of question id to answer.
+     *
+     * Saved answers are a JSON object. An empty list decodes to an array, and
+     * JSON.stringify drops question-id properties set on an array, so the server
+     * receives no answers.
+     *
+     * @param {*} value Parsed answers, or the live response map.
+     * @returns {Object}
+     */
+    function responseMap(value) {
+        var map;
+        var key;
+        if (!value || typeof value !== 'object') {
+            return {};
+        }
+        if (!Array.isArray(value)) {
+            return value;
+        }
+        map = {};
+        for (key in value) {
+            if (Object.prototype.hasOwnProperty.call(value, key) && String(Number(key)) !== String(key)) {
+                map[key] = value[key];
+            }
+        }
+        return map;
+    }
+
+    /**
      * Whether the question at index has a non-empty saved answer.
      *
      * @param {object} ctx Pager state.
@@ -503,6 +531,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
      */
     function captureResponseFromBody(bodyEl, ctx) {
         var q = ctx.questions[ctx.currentIndex];
+        ctx.responses = responseMap(ctx.responses);
         if (!q) {
             return;
         }
@@ -618,7 +647,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 // Web service parameter name is snake_case.
                 // eslint-disable-next-line camelcase
                 record_id: collected.recordId,
-                responses: JSON.stringify(collected.responses)
+                responses: JSON.stringify(responseMap(collected.responses))
             },
             done: function(result) {
                 if (result && result.status === 'failed' && result.errormessage) {
@@ -1013,7 +1042,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                         answers = {};
                     }
                     ctx.questions = questions;
-                    ctx.responses = answers && typeof answers === 'object' ? answers : {};
+                    ctx.responses = responseMap(answers);
                     ctx.currentIndex = Math.max(0, Math.min(questions.length - 1, quiz.current_index || 0));
                     ctx.allowBackwards = false;
                     ctx.nextDelaySec = 0;
