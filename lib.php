@@ -58,8 +58,9 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     /**
      * Per-assignment snapshots and the values each one accepts.
      *
-     * A missing row uses the Dixeo default. The assignment modal stores the snapshot,
-     * and a later Dixeo change does not rewrite it.
+     * A missing row uses the Dixeo default. The module generator stores the Dixeo values
+     * when it creates an assignment, and the assignment modal can replace that copy.
+     * A later Dixeo change does not rewrite a stored copy.
      *
      * @return array<string, array{default: string, values?: string[], kind?: string}>
      */
@@ -626,9 +627,10 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
  * Dixeo settings owned by plagiarism_dixeo.
  *
  * Trigger, evaluation mode, and the student disclosure are Dixeo-wide. The other settings
- * have a Dixeo default and an assignment copy. There is no course layer. A new assignment
- * starts from the Dixeo default. Saving the assignment stores its own copy, and a later
- * Dixeo change does not rewrite it.
+ * have a Dixeo default and an assignment copy. There is no course layer. The module generator
+ * stores the Dixeo values on a new assignment. An assignment with no copy still uses the
+ * Dixeo default. Saving the assignment stores its own copy, and a later Dixeo change does
+ * not rewrite it.
  *
  * @return array[]
  */
