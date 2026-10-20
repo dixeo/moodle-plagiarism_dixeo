@@ -194,32 +194,78 @@
     color: #495057;
 }
 
-.plagiarism-dixeo-verification-counter {
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-/* Verification modal: question footer (left: Prev/Next, right: timers + Submit). */
-.modal-footer.plagiarism-dixeo-verification-footer {
+/* Verification modal: header with the question count and progress pie. */
+.plagiarism-dixeo-verification-header {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
     gap: 0.5rem;
     width: 100%;
 }
 
+.plagiarism-dixeo-verification-header .modal-title {
+    margin-bottom: 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.plagiarism-dixeo-verification-counter-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.plagiarism-dixeo-verification-donut {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background:
+        conic-gradient(
+            var(--primary, #0d6efd) 0deg calc(var(--p, 0) * 3.6deg),
+            #dee2e6 calc(var(--p, 0) * 3.6deg) 360deg
+        );
+}
+
+.plagiarism-dixeo-verification-counter {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: #737373;
+    white-space: nowrap;
+}
+
+/* Verification modal: row 1 is the confirmation and clocks, row 2 is navigation and Submit. */
+.modal-footer.plagiarism-dixeo-verification-footer {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    width: 100%;
+}
+
+.plagiarism-dixeo-verification-footer__meta,
+.plagiarism-dixeo-verification-footer__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+}
+
+.plagiarism-dixeo-verification-footer__clocks,
 .plagiarism-dixeo-verification-footer__left {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    margin-right: auto;
+    gap: 0.75rem;
 }
 
-.plagiarism-dixeo-verification-footer__right {
-    display: flex;
+.plagiarism-dixeo-confirm-label {
+    display: inline-flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.35rem;
+    margin: 0;
+    font-weight: 400;
 }
 
 .plagiarism-dixeo-footer-total-timer,

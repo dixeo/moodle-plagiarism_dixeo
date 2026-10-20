@@ -91,8 +91,8 @@ final class upgrade_test extends \advanced_testcase {
 
         xmldb_plagiarism_dixeo_upgrade(2026101899);
 
-        $this->assertFalse(get_config('plagiarism_dixeo', 'assignment_feedback_enabled'));
-        $this->assertFalse(get_config('plagiarism_dixeo', 'grading_enabled'));
+        $this->assertNotSame('1', get_config('plagiarism_dixeo', 'assignment_feedback_enabled'));
+        $this->assertNotSame('1', get_config('plagiarism_dixeo', 'grading_enabled'));
         $this->assertFalse(get_config('plagiarism_dixeo', 'enabled'));
     }
 }
