@@ -90,19 +90,30 @@ class output {
         if (!$cm || !\plagiarism_plugin_dixeo::enabled_for_course((int) $cm->course)) {
             return [];
         }
-        if (!\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
-            return [];
-        }
 
+        $modulecontext = \context_module::instance($cmid);
+        $feedbackon = \plagiarism_dixeo\feature_settings::assignment_feedback_on($modulecontext);
+        $authorshipon = \plagiarism_dixeo\feature_settings::authorship_on($modulecontext);
+        $gradingon = \plagiarism_dixeo\feature_settings::grading_on($modulecontext);
         $path = $url->get_path();
-        $gradingon = \plagiarism_dixeo\feature_settings::grading_on(\context_module::instance($cmid));
         $calls = [];
         foreach (self::$urlscriptmap as $entry) {
             if (!self::url_matches($path, $url, $entry)) {
                 continue;
             }
             $module = $entry['amd'][0];
-            if ($module === 'plagiarism_dixeo/mod_assign_grade_submission' && !$gradingon) {
+            if ($module === 'plagiarism_dixeo/mod_assign_pre_submission') {
+                if (!$feedbackon && !$authorshipon) {
+                    continue;
+                }
+                $calls[] = [
+                    $module,
+                    'init',
+                    [$feedbackon ? 1 : 0, $authorshipon ? 1 : 0],
+                ];
+                continue;
+            }
+            if ($module === 'plagiarism_dixeo/mod_assign_grade_submission' && (!$feedbackon || !$gradingon)) {
                 continue;
             }
             $calls[] = $entry['amd'];

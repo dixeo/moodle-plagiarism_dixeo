@@ -179,6 +179,7 @@ final class external_safe_errors_test extends \advanced_testcase {
 
         $this->resetAfterTest();
         set_debugging(DEBUG_NONE);
+        set_config('authorship_enabled', 1, 'plagiarism_dixeo');
 
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', [

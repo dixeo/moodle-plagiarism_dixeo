@@ -89,6 +89,23 @@ final class assign_access_test extends \advanced_testcase {
         $this->assertInstanceOf(\context_module::class, $context);
     }
 
+    public function test_student_can_verify_when_feedback_is_off(): void {
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('authorship_enabled', '1', 'plagiarism_dixeo');
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $this->setUser($student);
+
+        $context = assign_access::require_student_authorship((int) $assign->cmid);
+        $this->assertSame((int) $assign->cmid, (int) $context->instanceid);
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('activity_not_enabled', 'plagiarism_dixeo'));
+        assign_access::require_student_analyze((int) $assign->cmid);
+    }
+
     public function test_student_cannot_analyze_when_the_activity_is_off(): void {
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);

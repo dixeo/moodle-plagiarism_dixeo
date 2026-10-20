@@ -49,6 +49,12 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
     /** Whether the in-progress panel click listener has been bound. */
     var panelResumeBound = false;
 
+    /** Whether this assignment's feedback switch is on. The Analyze button follows it. */
+    var feedbackEnabled = true;
+
+    /** Whether this assignment's authorship switch is on. Submit follows it. */
+    var authorshipEnabled = true;
+
     /**
      * Remove any previous analysis response so the next one is shown alone.
      */
@@ -144,12 +150,19 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
      */
     function run() {
         var cmid = getUrlParam('id').trim();
-        if (!cmid) {
+        if (!cmid || (!feedbackEnabled && !authorshipEnabled)) {
             return;
         }
 
         var form = findAssignForm();
         if (!form) {
+            return;
+        }
+        if (authorshipEnabled) {
+            attachSubmitHandler(form, cmid);
+            attachPanelResumeHandler(form, cmid);
+        }
+        if (!feedbackEnabled) {
             return;
         }
         var submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
@@ -188,10 +201,6 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 buttonContainer.appendChild(analyzeButton);
             }
             attachAnalyzeHandler(analyzeButton, parseInt(cmid, 10));
-            if (form) {
-                attachSubmitHandler(form, cmid);
-                attachPanelResumeHandler(form, cmid);
-            }
             return null;
         }).catch(function() {
             // If strings fail, still allow normal submit.
@@ -1080,8 +1089,17 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
 
     /**
      * Initialize after full page load. Waits for window 'load' before doing anything.
+     *
+     * @param {number} [feedback] 1 when assignment feedback is on.
+     * @param {number} [authorship] 1 when authorship verification is on.
      */
-    function init() {
+    function init(feedback, authorship) {
+        if (feedback !== undefined) {
+            feedbackEnabled = Number(feedback) === 1;
+        }
+        if (authorship !== undefined) {
+            authorshipEnabled = Number(authorship) === 1;
+        }
         if (document.readyState === 'complete') {
             run();
         } else {

@@ -61,7 +61,7 @@ class start_verification extends external_api {
         $params = self::validate_parameters(self::execute_parameters(), ['record_id' => $recordid]);
 
         $record = verification_access::require_own_open_quiz($params['record_id']);
-        $context = assign_access::require_student_analyze_from_authorship($record);
+        $context = assign_access::require_student_authorship_from_record($record);
 
         [$state, $juststarted] = quiz_session::start($record);
 
