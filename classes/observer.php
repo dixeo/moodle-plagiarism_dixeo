@@ -31,6 +31,7 @@ use plagiarism_dixeo\automation\analysis_gate;
 use plagiarism_dixeo\event\grade_draft_applied;
 use plagiarism_dixeo\feedback\grade_feedback_storage;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
+use plagiarism_dixeo\grading\autograde_enabler;
 use plagiarism_dixeo\task\analyze_submission;
 use plagiarism_dixeo\task\stage_draft_grade;
 
@@ -143,9 +144,94 @@ class observer {
             return;
         }
 
-        author_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
-        presubmission_feedback_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
-        grade_feedback_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+        self::delete_analysis($userid, $submissionid);
+    }
+
+    /**
+     * A teacher removed a submission, so nothing Dixeo concluded about it may be kept.
+     *
+     * A team submission names no student, so every student's analysis of it is deleted.
+     *
+     * @param base $event mod_assign submission_removed event.
+     */
+    public static function submission_removed(base $event): void {
+        $submissionid = (int) ($event->other['submissionid'] ?? $event->objectid);
+        if ($submissionid <= 0) {
+            return;
+        }
+
+        self::delete_analysis((int) $event->relateduserid, $submissionid);
+    }
+
+    /**
+     * Track who switched automatic grading on for an assignment.
+     *
+     * Only a deliberate activity-level On from a real user acting for themselves is recorded.
+     * Off, an inherited value, a copy of the Dixeo value onto a new assignment, a write made
+     * while logged in as someone else, and a write with no user clear the record, so automatic
+     * grading then keeps drafts.
+     *
+     * @param \local_dixeo\event\setting_updated $event Catalogue setting change.
+     */
+    public static function setting_updated(\local_dixeo\event\setting_updated $event): void {
+        global $CFG;
+
+        if (
+            ($event->other['component'] ?? '') !== 'plagiarism_dixeo'
+            || ($event->other['name'] ?? '') !== feature_settings::AUTO_GRADING
+            || (int) $event->contextlevel !== CONTEXT_MODULE
+        ) {
+            return;
+        }
+        $context = \context::instance_by_id((int) $event->contextid, IGNORE_MISSING);
+        if (!$context instanceof \context_module) {
+            return;
+        }
+        $cmid = (int) $context->instanceid;
+
+        $resolved = \local_dixeo\external\service_factory::get_settings_config()
+            ->get('plagiarism_dixeo', feature_settings::AUTO_GRADING, $context);
+        $userid = (int) $event->userid;
+        $deliberate = $resolved->get_source() === \local_dixeo\settings\resolver::LAYER_ACTIVITY
+            && $resolved->get_value() === '1'
+            && empty($event->other['defaultcopy'])
+            && $userid > 0
+            && !isguestuser($userid)
+            && !\core\session\manager::is_loggedinas();
+
+        if ($deliberate) {
+            autograde_enabler::record($cmid, $userid);
+        } else {
+            autograde_enabler::clear($cmid);
+        }
+
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+        \plagiarism_plugin_dixeo::purge_activity_config_cache($cmid);
+    }
+
+    /**
+     * Delete the stored analysis of a submission.
+     *
+     * @param int $userid Student the analysis is about, or 0 for every student of the submission.
+     * @param int $submissionid Assign submission id.
+     */
+    public static function delete_analysis(int $userid, int $submissionid): void {
+        global $DB;
+
+        if ($submissionid <= 0) {
+            return;
+        }
+        if ($userid > 0) {
+            author_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+            presubmission_feedback_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+            grade_feedback_storage::delete_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
+            return;
+        }
+
+        $conditions = ['component' => self::COMPONENT, 'area' => self::AREA, 'itemid' => $submissionid];
+        foreach ([author_storage::TABLE, presubmission_feedback_storage::TABLE, grade_feedback_storage::TABLE] as $table) {
+            $DB->delete_records($table, $conditions);
+        }
     }
 
     /**

@@ -155,6 +155,7 @@ $string['status_pending_badge'] = 'Analisi in corso...';
 $string['student_disclosure'] = 'Informazioni per lo studente';
 $string['student_disclosure_help'] = 'Testo mostrato agli studenti nella pagina di consegna. Spiega che il loro lavoro verrà analizzato e cosa implica. Lascia vuoto per non mostrare nulla.';
 $string['task_analyze_submission'] = 'Analizza una consegna di compito con Dixeo';
+$string['task_cleanup_orphan_records'] = 'Elimina le analisi Dixeo delle consegne rimosse';
 $string['task_retry_pending_analysis'] = 'Riprova le analisi Dixeo incomplete delle consegne';
 $string['task_stage_draft_grade'] = 'Prepara e applica un voto Dixeo';
 $string['timer_question_tooltip'] = 'La domanda successiva verrà mostrata quando questo timer scade.';

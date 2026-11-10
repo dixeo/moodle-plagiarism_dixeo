@@ -170,6 +170,15 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             }
         }
 
+        self::purge_activity_config_cache($cmid);
+    }
+
+    /**
+     * Forget the settings held for a course module in this request.
+     *
+     * @param int $cmid Course module id.
+     */
+    public static function purge_activity_config_cache(int $cmid): void {
         self::get_request_cache()->delete('config_' . $cmid);
     }
 
@@ -900,4 +909,38 @@ function plagiarism_dixeo_coursemodule_standard_elements($formwrapper, $mform) {
         ['customclassoverride' => 'btn-primary']
     );
     $PAGE->requires->js_call_amd('local_dixeo/settings_modal', 'init');
+}
+
+/**
+ * Delete what Dixeo stored for an assignment before the course module is removed.
+ *
+ * Analyses are reached through the assignment's submissions, which are deleted with the
+ * module, so they are removed here while that link still exists.
+ *
+ * @param stdClass $cm Course module record being deleted.
+ */
+function plagiarism_dixeo_pre_course_module_delete($cm): void {
+    global $DB;
+
+    $cmid = (int) ($cm->id ?? 0);
+    if ($cmid <= 0 || $DB->get_field('modules', 'name', ['id' => (int) ($cm->module ?? 0)]) !== 'assign') {
+        return;
+    }
+
+    $tables = [
+        \plagiarism_dixeo\authorship\author_storage::TABLE,
+        \plagiarism_dixeo\feedback\presubmission_feedback_storage::TABLE,
+        \plagiarism_dixeo\feedback\grade_feedback_storage::TABLE,
+    ];
+    foreach ($tables as $table) {
+        $DB->delete_records_select(
+            $table,
+            'component = :component AND area = :area
+             AND itemid IN (SELECT id FROM {assign_submission} WHERE assignment = :assignid)',
+            ['component' => 'mod_assign', 'area' => 'submission', 'assignid' => (int) $cm->instance]
+        );
+    }
+    $DB->delete_records(plagiarism_plugin_dixeo::CONFIG_TABLE, ['cm' => $cmid]);
+    \plagiarism_dixeo\grading\autograde_enabler::clear($cmid);
+    plagiarism_plugin_dixeo::purge_activity_config_cache($cmid);
 }

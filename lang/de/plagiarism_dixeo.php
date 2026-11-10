@@ -155,6 +155,7 @@ $string['status_pending_badge'] = 'Analyse...';
 $string['student_disclosure'] = 'Hinweis für Studierende';
 $string['student_disclosure_help'] = 'Text, der Studierenden auf der Abgabeseite angezeigt wird. Erklären Sie, dass ihre Arbeit analysiert wird und was das bedeutet. Leer lassen, um nichts anzuzeigen.';
 $string['task_analyze_submission'] = 'Eine Aufgabenabgabe mit Dixeo analysieren';
+$string['task_cleanup_orphan_records'] = 'Dixeo-Analysen entfernter Abgaben löschen';
 $string['task_retry_pending_analysis'] = 'Unvollständige Dixeo-Abgabeanalysen wiederholen';
 $string['task_stage_draft_grade'] = 'Eine Dixeo-Note vorbereiten und übernehmen';
 $string['timer_question_tooltip'] = 'Die nächste Frage wird angezeigt, wenn dieser Timer endet.';

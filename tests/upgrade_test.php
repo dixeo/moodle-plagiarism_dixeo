@@ -26,7 +26,7 @@
 namespace plagiarism_dixeo;
 
 /**
- * Sites that already analysed assignments keep that behaviour. New keys stay off otherwise.
+ * Upgrade steps keep earlier behaviour, record evidence of past transfers and drop orphaned analyses.
  *
  * @covers ::xmldb_plagiarism_dixeo_upgrade
  */
@@ -94,5 +94,88 @@ final class upgrade_test extends \advanced_testcase {
         $this->assertNotSame('1', get_config('plagiarism_dixeo', 'assignment_feedback_enabled'));
         $this->assertNotSame('1', get_config('plagiarism_dixeo', 'grading_enabled'));
         $this->assertFalse(get_config('plagiarism_dixeo', 'enabled'));
+    }
+
+    /**
+     * Stored analyses are evidence of past transfers to Dixeo, even when their submission is gone.
+     */
+    public function test_upgrade_records_transfer_evidence_from_stored_analyses(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+        require_once($CFG->libdir . '/upgradelib.php');
+        require_once($CFG->dirroot . '/plagiarism/dixeo/db/upgrade.php');
+        set_config('version', 2026110999, 'plagiarism_dixeo');
+        unset_config(\local_dixeo\privacy\remote_state::CONFIG_TRANSFERRED, 'local_dixeo');
+        $student = $this->getDataGenerator()->create_user();
+        $DB->insert_record('plagiarism_dixeo_presubmission_feedback', (object) [
+            'userid' => $student->id,
+            'component' => 'mod_assign',
+            'area' => 'submission',
+            'itemid' => 987654,
+            'feedback' => '<p>Old</p>',
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        xmldb_plagiarism_dixeo_upgrade(2026110999);
+
+        $this->assertTrue(\local_dixeo\privacy\remote_state::has_transferred());
+        $this->assertFalse($DB->record_exists('plagiarism_dixeo_presubmission_feedback', ['itemid' => 987654]));
+    }
+
+    /**
+     * A site with no stored analysis gains no transfer evidence from this plugin.
+     */
+    public function test_upgrade_leaves_transfer_evidence_unset_without_stored_analyses(): void {
+        global $CFG;
+
+        $this->resetAfterTest();
+        require_once($CFG->libdir . '/upgradelib.php');
+        require_once($CFG->dirroot . '/plagiarism/dixeo/db/upgrade.php');
+        set_config('version', 2026110999, 'plagiarism_dixeo');
+        unset_config(\local_dixeo\privacy\remote_state::CONFIG_TRANSFERRED, 'local_dixeo');
+
+        xmldb_plagiarism_dixeo_upgrade(2026110999);
+
+        $this->assertFalse(\local_dixeo\privacy\remote_state::has_transferred());
+    }
+
+    /**
+     * Analyses of existing submissions survive the orphan cleanup.
+     */
+    public function test_upgrade_keeps_analyses_of_existing_submissions(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+        require_once($CFG->libdir . '/upgradelib.php');
+        require_once($CFG->dirroot . '/plagiarism/dixeo/db/upgrade.php');
+        set_config('version', 2026110999, 'plagiarism_dixeo');
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $submissionid = $DB->insert_record('assign_submission', (object) [
+            'assignment' => $assign->id,
+            'userid' => $student->id,
+            'status' => 'submitted',
+            'attemptnumber' => 0,
+            'latest' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $DB->insert_record('plagiarism_dixeo_presubmission_feedback', (object) [
+            'userid' => $student->id,
+            'component' => 'mod_assign',
+            'area' => 'submission',
+            'itemid' => $submissionid,
+            'feedback' => '<p>Kept</p>',
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        xmldb_plagiarism_dixeo_upgrade(2026110999);
+
+        $this->assertTrue($DB->record_exists('plagiarism_dixeo_presubmission_feedback', ['itemid' => $submissionid]));
+        $this->assertTrue($DB->get_manager()->table_exists('plagiarism_dixeo_autograde'));
     }
 }

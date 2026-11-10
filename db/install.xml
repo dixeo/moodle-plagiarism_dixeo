@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="plagiarism/dixeo/db" VERSION="20260925" COMMENT="XMLDB file for plagiarism_dixeo"
+<XMLDB PATH="plagiarism/dixeo/db" VERSION="20261110" COMMENT="XMLDB file for plagiarism_dixeo"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -87,6 +87,21 @@
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
         <KEY NAME="cm_name" TYPE="unique" FIELDS="cm, name"/>
       </KEYS>
+    </TABLE>
+    <TABLE NAME="plagiarism_dixeo_autograde" COMMENT="Teacher who switched automatic grading on for an assignment; automatic grades are recorded against them.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Assignment course module id"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="User who switched automatic grading on"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="When automatic grading was switched on"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="cmid" TYPE="unique" FIELDS="cmid"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
+      </INDEXES>
     </TABLE>
   </TABLES>
 </XMLDB>

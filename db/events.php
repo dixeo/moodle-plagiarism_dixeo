@@ -15,10 +15,9 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Event observers for automatic submission analysis.
+ * Event observers for automatic submission analysis and its stored results.
  *
- * Handlers only read configuration and queue work, so they are safe to run inside the
- * student's submission request.
+ * Handlers read configuration, keep the plugin's own rows in step and queue work.
  *
  * @package    plagiarism_dixeo
  * @copyright  2026 Dixeo (contact@dixeo.com)
@@ -51,5 +50,13 @@ $observers = [
     [
         'eventname' => '\mod_assign\event\submission_graded',
         'callback' => '\plagiarism_dixeo\observer::submission_graded',
+    ],
+    [
+        'eventname' => '\mod_assign\event\submission_removed',
+        'callback' => '\plagiarism_dixeo\observer::submission_removed',
+    ],
+    [
+        'eventname' => '\local_dixeo\event\setting_updated',
+        'callback' => '\plagiarism_dixeo\observer::setting_updated',
     ],
 ];

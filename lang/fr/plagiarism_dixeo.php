@@ -155,6 +155,7 @@ $string['status_pending_badge'] = 'Analyse...';
 $string['student_disclosure'] = 'Information aux étudiants';
 $string['student_disclosure_help'] = 'Texte affiché aux étudiants sur la page de remise. Expliquez que leur travail sera analysé et ce que cela implique. Laissez vide pour n\'afficher rien.';
 $string['task_analyze_submission'] = 'Analyser une remise de devoir avec Dixeo';
+$string['task_cleanup_orphan_records'] = 'Supprimer les analyses Dixeo des remises supprimées';
 $string['task_retry_pending_analysis'] = 'Relancer les analyses de remises Dixeo inachevées';
 $string['task_stage_draft_grade'] = 'Préparer et appliquer une note Dixeo';
 $string['timer_question_tooltip'] = 'La question suivante s\'affichera à la fin de ce minuteur.';

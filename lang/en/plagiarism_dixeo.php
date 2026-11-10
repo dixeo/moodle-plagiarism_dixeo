@@ -155,6 +155,7 @@ $string['status_pending_badge'] = 'Analysing...';
 $string['student_disclosure'] = 'Student disclosure';
 $string['student_disclosure_help'] = 'Text shown to students on the submission page. Use it to explain that their work will be analysed and what that involves. Leave it empty to show nothing.';
 $string['task_analyze_submission'] = 'Analyse an assignment submission with Dixeo';
+$string['task_cleanup_orphan_records'] = 'Delete Dixeo analyses of removed submissions';
 $string['task_retry_pending_analysis'] = 'Retry unfinished Dixeo submission analyses';
 $string['task_stage_draft_grade'] = 'Prepare and apply a Dixeo grade';
 $string['timer_question_tooltip'] = 'The next question will be shown when this timer ends.';

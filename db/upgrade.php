@@ -182,5 +182,46 @@ function xmldb_plagiarism_dixeo_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026101900, 'plagiarism', 'dixeo');
     }
 
+    if ($oldversion < 2026111000) {
+        // Nobody is known to have switched automatic grading on, so existing assignments keep drafts
+        // until a teacher switches it on again.
+        $autograde = new xmldb_table('plagiarism_dixeo_autograde');
+        $autograde->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE);
+        $autograde->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $autograde->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $autograde->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL);
+        $autograde->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $autograde->add_key('cmid', XMLDB_KEY_UNIQUE, ['cmid']);
+        $autograde->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
+        if (!$dbman->table_exists($autograde)) {
+            $dbman->create_table($autograde);
+        }
+
+        // Stored analyses prove that student work was sent to Dixeo, orphans included.
+        $tables = [
+            'plagiarism_dixeo_authorship',
+            'plagiarism_dixeo_presubmission_feedback',
+            'plagiarism_dixeo_grade_feedback',
+        ];
+        foreach ($tables as $table) {
+            if ($DB->record_exists($table, [])) {
+                \local_dixeo\privacy\remote_state::record_transfer();
+                break;
+            }
+        }
+
+        // Analyses of submissions that no longer exist are out of reach of the Privacy API.
+        foreach ($tables as $table) {
+            $DB->delete_records_select(
+                $table,
+                "component = :component AND area = :area
+                 AND NOT EXISTS (SELECT 1 FROM {assign_submission} s WHERE s.id = itemid)",
+                ['component' => 'mod_assign', 'area' => 'submission']
+            );
+        }
+
+        upgrade_plugin_savepoint(true, 2026111000, 'plagiarism', 'dixeo');
+    }
+
     return true;
 }

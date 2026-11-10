@@ -155,6 +155,7 @@ $string['status_pending_badge'] = 'Analizando...';
 $string['student_disclosure'] = 'Información para el estudiante';
 $string['student_disclosure_help'] = 'Texto mostrado a los estudiantes en la página de entrega. Explique que su trabajo se analizará y qué implica. Déjelo vacío para no mostrar nada.';
 $string['task_analyze_submission'] = 'Analizar una entrega de tarea con Dixeo';
+$string['task_cleanup_orphan_records'] = 'Eliminar los análisis Dixeo de entregas eliminadas';
 $string['task_retry_pending_analysis'] = 'Reintentar análisis de entregas Dixeo incompletos';
 $string['task_stage_draft_grade'] = 'Preparar y aplicar una calificación Dixeo';
 $string['timer_question_tooltip'] = 'La siguiente pregunta se mostrará cuando termine este temporizador.';

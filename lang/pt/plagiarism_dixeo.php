@@ -155,6 +155,7 @@ $string['status_pending_badge'] = 'A analisar...';
 $string['student_disclosure'] = 'Informação para o estudante';
 $string['student_disclosure_help'] = 'Texto mostrado aos estudantes na página de submissão. Explique que o seu trabalho será analisado e o que isso implica. Deixe vazio para não mostrar nada.';
 $string['task_analyze_submission'] = 'Analisar uma submissão de trabalho com o Dixeo';
+$string['task_cleanup_orphan_records'] = 'Eliminar as análises Dixeo de submissões removidas';
 $string['task_retry_pending_analysis'] = 'Tentar novamente análises Dixeo incompletas de submissões';
 $string['task_stage_draft_grade'] = 'Preparar e aplicar uma nota Dixeo';
 $string['timer_question_tooltip'] = 'A pergunta seguinte será mostrada quando este temporizador terminar.';

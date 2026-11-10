@@ -25,10 +25,11 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'plagiarism_dixeo';
-$plugin->version   = 2026101900;
-$plugin->requires  = 2022112800;
+$plugin->version   = 2026111000;
+$plugin->requires  = 2024100700;
+$plugin->supported = [405, 405];
 $plugin->maturity  = MATURITY_ALPHA;
-$plugin->release   = '0.2.0';
+$plugin->release   = '0.3.0';
 $plugin->dependencies = [
-    'local_dixeo' => 2026092100,
+    'local_dixeo' => 2026111000,
 ];

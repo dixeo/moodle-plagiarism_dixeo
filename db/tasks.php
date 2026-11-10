@@ -34,4 +34,13 @@ $tasks = [
         'dayofweek' => '*',
         'month' => '*',
     ],
+    [
+        'classname' => 'plagiarism_dixeo\task\cleanup_orphan_records',
+        'blocking' => 0,
+        'minute' => 'R',
+        'hour' => 'R',
+        'day' => '*',
+        'dayofweek' => '*',
+        'month' => '*',
+    ],
 ];
