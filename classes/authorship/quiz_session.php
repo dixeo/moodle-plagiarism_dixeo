@@ -39,8 +39,8 @@ class quiz_session {
     /** @var int Largest accepted answer to a single question, in characters. */
     public const MAX_ANSWER_LENGTH = 5000;
 
-    /** @var int Largest accepted number of questions in one payload. */
-    public const MAX_QUESTIONS = 50;
+    /** @var int Largest accepted number of questions in one payload: the most a generated quiz can hold. */
+    public const MAX_QUESTIONS = \local_dixeo\service\assign_ux_service::QUIZ_MAX_QUESTIONS;
 
     /** @var int Grace period allowed for a request that was in flight as the clock ran out. */
     public const EXPIRY_GRACE_SECONDS = 5;

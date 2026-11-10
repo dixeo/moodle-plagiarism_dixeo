@@ -406,7 +406,8 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     /**
@@ -545,20 +546,44 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             return;
         }
         var qId = questionId(q, ctx.currentIndex);
-        var input = bodyEl.querySelector('input[name="authorship_q[' + qId + ']"]:checked');
-        if (input) {
-            ctx.responses[qId] = input.value;
+        var fields = fieldsNamed(bodyEl, answerFieldName(qId));
+        var i;
+        for (i = 0; i < fields.length; i++) {
+            if (fields[i].type === 'radio') {
+                if (fields[i].checked) {
+                    ctx.responses[qId] = fields[i].value;
+                    return;
+                }
+                continue;
+            }
+            ctx.responses[qId] = fields[i].value || '';
             return;
         }
-        var sel = bodyEl.querySelector('select[name="authorship_q[' + qId + ']"]');
-        if (sel) {
-            ctx.responses[qId] = sel.value || '';
-            return;
-        }
-        var textarea = bodyEl.querySelector('textarea[name="authorship_q[' + qId + ']"]');
-        if (textarea) {
-            ctx.responses[qId] = textarea.value || '';
-        }
+    }
+
+    /**
+     * Form field name holding the answer to a question.
+     *
+     * @param {string} qId Question id.
+     * @returns {string}
+     */
+    function answerFieldName(qId) {
+        return 'authorship_q[' + qId + ']';
+    }
+
+    /**
+     * Answer fields in a container whose name matches exactly.
+     *
+     * Fields are compared by their name property, so a question id is never put into a selector.
+     *
+     * @param {HTMLElement} container Element holding the fields.
+     * @param {string} name Field name.
+     * @returns {Array<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>}
+     */
+    function fieldsNamed(container, name) {
+        return Array.prototype.filter.call(container.querySelectorAll('input, select, textarea'), function(field) {
+            return field.name === name;
+        });
     }
 
     /**
@@ -572,7 +597,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
      * @returns {string}
      */
     function renderOneQuestionHtml(q, qId, currentValue, uiStrings, questionNumber) {
-        var name = 'authorship_q[' + qId + ']';
+        var name = escapeHtml(answerFieldName(qId));
         var numberedText = (questionNumber ? questionNumber + '. ' : '') + escapeHtml(q.text || '');
         var html = '<div class="form-group authorship-question"><p class="authorship-question-text">' +
             numberedText + '</p>';
