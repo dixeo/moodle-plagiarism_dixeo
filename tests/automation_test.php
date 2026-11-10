@@ -33,10 +33,10 @@ use plagiarism_dixeo\automation\analysis_gate;
 use plagiarism_dixeo\feedback\grade_feedback_storage;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
 use plagiarism_dixeo\task\analyze_submission;
+use plagiarism_dixeo\task\stage_draft_grade;
 
 /**
- * Automatic analysis stays off unless every switch is on. Asynchronous mode queues work;
- * synchronous mode runs the same task in the observer.
+ * Automatic analysis stays off unless every switch is on, and the observer only queues work.
  *
  * @covers \plagiarism_dixeo\automation\analysis_gate
  * @covers \plagiarism_dixeo\observer
@@ -378,57 +378,29 @@ final class automation_test extends \advanced_testcase {
         $this->assertSame([], $sink->get_events());
     }
 
-    public function test_asynchronous_mode_is_the_default(): void {
-        $this->assertSame(analysis_gate::MODE_ASYNC, analysis_gate::get_evaluation_mode());
-        $this->assertFalse(analysis_gate::is_sync());
-    }
+    public function test_the_observer_only_queues_and_prints_nothing(): void {
+        global $DB, $USER;
 
-    public function test_synchronous_mode_runs_analysis_instead_of_queueing(): void {
-        set_config('evaluation_mode', analysis_gate::MODE_SYNC, 'plagiarism_dixeo');
-
+        $grading = \context_module::instance((int) $this->assign->cmid);
+        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['enable_auto_grading' => '1']);
+        $this->assertTrue(analysis_gate::wants_draft_grade((int) $grading->instanceid));
         $mock = $this->createMock(assign_ux_service::class);
-        $mock->expects($this->once())
-            ->method('submit_review_and_wait')
-            ->willReturn(new operation_result(true, 'job-review', ['feedback_html' => '<p>Clear work.</p>']));
-        $mock->method('map_review_result')
-            ->willReturn(['feedback_html' => '<p>Clear work.</p>']);
+        $mock->expects($this->never())->method($this->anything());
         service_factory::set_test_assign_ux_service($mock);
+        $this->setUser($this->student);
+        $before = (int) $USER->id;
 
-        ob_start();
+        $this->expectOutputString('');
         $this->fire_submission_event(analysis_gate::TRIGGER_SUBMIT);
-        ob_end_clean();
 
-        $this->assertSame(0, $this->count_queued_tasks());
-        $stored = presubmission_feedback_storage::get_by_context(
+        $this->assertSame($before, (int) $USER->id);
+        $this->assertSame(1, $this->count_queued_tasks());
+        $this->assertSame(1, $DB->count_records('task_adhoc', ['classname' => '\\' . stage_draft_grade::class]));
+        $this->assertNull(presubmission_feedback_storage::get_by_context(
             (int) $this->student->id,
             'mod_assign',
             'submission',
             $this->submissionid
-        );
-        $this->assertNotNull($stored);
-        $this->assertStringContainsString('Clear work.', $stored->feedback);
-    }
-
-    public function test_a_synchronous_failure_leaves_a_pending_record_and_does_not_queue(): void {
-        set_config('evaluation_mode', analysis_gate::MODE_SYNC, 'plagiarism_dixeo');
-
-        $mock = $this->createMock(assign_ux_service::class);
-        $mock->method('submit_review_and_wait')
-            ->willThrowException(new \moodle_exception('automation_review_failed', 'plagiarism_dixeo', '', 'down'));
-        service_factory::set_test_assign_ux_service($mock);
-
-        ob_start();
-        $this->fire_submission_event(analysis_gate::TRIGGER_SUBMIT);
-        ob_end_clean();
-
-        $this->assertSame(0, $this->count_queued_tasks());
-        $pending = author_storage::get_record_by_context(
-            (int) $this->student->id,
-            'mod_assign',
-            'submission',
-            $this->submissionid
-        );
-        $this->assertNotNull($pending);
-        $this->assertSame(author_storage::STATUS_PENDING, $pending->status);
+        ));
     }
 }

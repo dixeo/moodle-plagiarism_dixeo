@@ -668,7 +668,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
 /**
  * Dixeo settings owned by plagiarism_dixeo.
  *
- * Trigger, evaluation mode, and the student disclosure are Dixeo-wide. The other settings
+ * Trigger and the student disclosure are Dixeo-wide. The other settings
  * have a Dixeo default and an assignment copy. There is no course layer. The module generator
  * stores the Dixeo values on a new assignment. An assignment with no copy still uses the
  * Dixeo default. Saving the assignment stores its own copy, and a later Dixeo change does
@@ -725,20 +725,6 @@ function plagiarism_dixeo_dixeo_settings(): array {
             'sub' => 'feedback',
             'plugingroup' => 'plagiarism_dixeo',
             'help' => 'assign_trigger_help',
-            'sensitive' => false,
-        ],
-        [
-            'key' => 'evaluation_mode',
-            'shortname' => 'evaluation_mode',
-            'component' => 'plagiarism_dixeo',
-            'type' => 'select',
-            'default' => 'async',
-            'options' => ['async', 'sync'],
-            'levels' => ['dixeo'],
-            'feature' => 'assignment',
-            'sub' => 'feedback',
-            'plugingroup' => 'plagiarism_dixeo',
-            'help' => 'evaluation_mode_help',
             'sensitive' => false,
         ],
         [

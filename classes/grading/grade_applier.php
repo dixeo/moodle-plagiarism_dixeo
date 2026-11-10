@@ -30,6 +30,8 @@ use plagiarism_dixeo\feedback\grade_feedback_storage;
  * Thin wrapper around \assign::save_grade for simple, guide and rubric results.
  *
  * The plugin table keeps the proposal; this class is the only place that writes it into Moodle.
+ * The grade is written as the current user, who must be able to grade: automatic grades run
+ * in a task that cron sets up as the teacher who switched automatic grading on.
  */
 class grade_applier {
     /**
@@ -46,24 +48,27 @@ class grade_applier {
     }
 
     /**
-     * Apply a staged grading result to the assignment.
+     * Apply a staged grading result to the assignment as the current user.
      *
      * @param int $cmid Course module id.
      * @param int $userid Student being graded.
      * @param int $submissionid Assign submission id.
      * @param array $result Keys: gradingmethod, feedback; optional grade, criteria.
-     * @return bool True if save_grade succeeded.
+     * @return bool True if the grade was saved; false when the current user cannot grade or the work is gone.
      */
     public static function apply(int $cmid, int $userid, int $submissionid, array $result): bool {
-        global $CFG, $DB, $USER;
+        global $CFG, $DB;
 
         $cm = get_coursemodule_from_id('assign', $cmid, 0, true, IGNORE_MISSING);
         if (!$cm) {
             return false;
         }
 
-        $course = get_course($cm->course);
         $context = \context_module::instance($cm->id);
+        if (!has_capability('mod/assign:grade', $context)) {
+            return false;
+        }
+        $course = get_course($cm->course);
 
         require_once($CFG->dirroot . '/mod/assign/locallib.php');
 
@@ -109,43 +114,32 @@ class grade_applier {
 
         $data->sendstudentnotifications = true;
 
-        $graderid = self::resolve_grader_id($context);
-        if ($graderid <= 0) {
-            return false;
-        }
-
-        $original = $USER;
-        try {
-            \core\session\manager::set_user(\core_user::get_user($graderid, '*', MUST_EXIST));
-            $assign->save_grade($userid, $data);
-            return true;
-        } catch (\Throwable $e) {
-            mtrace('plagiarism_dixeo: could not apply automatic grade: ' . $e->getMessage());
-            return false;
-        } finally {
-            if (!empty($original) && !empty($original->id)) {
-                \core\session\manager::set_user($original);
-            }
-        }
+        $assign->save_grade($userid, $data);
+        return true;
     }
 
     /**
-     * User id of someone who can grade in this activity.
+     * The teacher automatic grades for this assignment are recorded against, while they still qualify.
      *
-     * Automatic grading runs from a student submission, so the write is done as a teacher or administrator.
+     * That is the user who switched automatic grading on for the assignment. They must still
+     * exist, be neither deleted nor suspended, and hold mod/assign:grade on the assignment.
      *
-     * @param \context $context Assignment context.
-     * @return int User id, or 0 when nobody can grade.
+     * @param int $cmid Assignment course module id.
+     * @return int User id, or 0 when nobody qualifies and a draft must be kept for a teacher.
      */
-    private static function resolve_grader_id(\context $context): int {
-        $admin = get_admin();
-        if ($admin && has_capability('mod/assign:grade', $context, $admin)) {
-            return (int) $admin->id;
+    public static function resolve_grader_id(int $cmid): int {
+        $userid = autograde_enabler::get_userid($cmid);
+        if ($userid <= 0) {
+            return 0;
         }
-
-        $graders = get_enrolled_users($context, 'mod/assign:grade', 0, 'u.id', 'u.id ASC', 0, 1);
-        $grader = reset($graders);
-
-        return $grader ? (int) $grader->id : 0;
+        $user = \core_user::get_user($userid, 'id,deleted,suspended', IGNORE_MISSING);
+        if (!$user || !empty($user->deleted) || !empty($user->suspended)) {
+            return 0;
+        }
+        $context = \context_module::instance($cmid, IGNORE_MISSING);
+        if (!$context || !has_capability('mod/assign:grade', $context, $userid)) {
+            return 0;
+        }
+        return $userid;
     }
 }

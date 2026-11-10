@@ -33,11 +33,12 @@ use plagiarism_dixeo\feedback\grade_feedback_storage;
 use plagiarism_dixeo\grading\grade_applier;
 
 /**
- * Prepares a proposed grade and, when automatic grading is on, writes it to the gradebook.
+ * Prepares a proposed grade and hands it to the teacher automatic grades are recorded against.
  *
- * The proposal is always stored in the plugin table first. When the activity has asked for
- * automatic grading, the same result is then applied through \assign::save_grade. A teacher
- * can still change that grade afterwards.
+ * The task runs as the student, like the analysis task, so the send, its credits and the
+ * consent check belong to the student whose work it is. The proposal is stored in the plugin
+ * table, then {@see apply_draft_grade} writes it to the gradebook as the teacher who switched
+ * automatic grading on. When no such teacher qualifies, the draft is kept for a teacher.
  */
 class stage_draft_grade extends \core\task\adhoc_task {
     /** @var string Component the stored proposal belongs to. */
@@ -95,14 +96,11 @@ class stage_draft_grade extends \core\task\adhoc_task {
             return;
         }
 
-        $adapter = new authorship_persistence_adapter();
-        $authorship = $adapter->get_authorship_by_context($userid, self::COMPONENT, self::AREA, $submissionid);
-
         $reader = new assign_submission_reader();
         $assignmentcontext = $reader->get_assignment_context($cmid, $courseid);
 
-        $service = service_factory::get_assign_ux_service($adapter);
-        $operation = $service->submit_grade_and_wait($courseid, $cmid, $userid, $authorship);
+        $service = service_factory::get_assign_ux_service(new authorship_persistence_adapter());
+        $operation = $service->submit_grade_and_wait($courseid, $cmid, $userid);
         if (!$operation->completed) {
             throw new \moodle_exception('automation_grade_incomplete', 'plagiarism_dixeo');
         }
@@ -127,10 +125,21 @@ class stage_draft_grade extends \core\task\adhoc_task {
         }
         $transaction->allow_commit();
 
-        if (grade_applier::apply($cmid, $userid, $submissionid, $mapped)) {
-            grade_feedback_storage::mark_applied($userid, self::COMPONENT, self::AREA, $submissionid);
+        $graderid = analysis_gate::wants_draft_grade($cmid) ? grade_applier::resolve_grader_id($cmid) : 0;
+        if ($graderid > 0) {
+            $apply = new apply_draft_grade();
+            $apply->set_component('plagiarism_dixeo');
+            $apply->set_userid($graderid);
+            $apply->set_custom_data([
+                'cmid' => $cmid,
+                'courseid' => $courseid,
+                'userid' => $userid,
+                'submissionid' => $submissionid,
+                'draftid' => (int) $record->id,
+            ]);
+            \core\task\manager::queue_adhoc_task($apply);
         } else {
-            mtrace("plagiarism_dixeo: draft grade stored for submission $submissionid but not written to the gradebook.");
+            mtrace("plagiarism_dixeo: no teacher is recorded for automatic grades, draft kept for submission $submissionid.");
         }
 
         grade_draft_created::create([

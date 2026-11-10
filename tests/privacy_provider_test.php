@@ -33,10 +33,12 @@ use core_privacy\local\request\writer;
 use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\feedback\grade_feedback_storage;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
+use plagiarism_dixeo\grading\autograde_enabler;
+use plagiarism_dixeo\grading\grade_applier;
 use plagiarism_dixeo\privacy\provider;
 
 /**
- * Privacy API tests covering all three personal data tables at activity context.
+ * Privacy API tests covering every personal data table at activity context.
  *
  * @covers \plagiarism_dixeo\privacy\provider
  */
@@ -226,5 +228,59 @@ final class privacy_provider_test extends \core_privacy\tests\provider_testcase 
         provider::delete_data_for_all_users_in_context($usercontext);
 
         $this->assertEquals(3, $this->count_rows((int) $this->student->id));
+    }
+
+    public function test_metadata_declares_the_automatic_grading_record(): void {
+        $items = provider::get_metadata(new collection('plagiarism_dixeo'))->get_collection();
+        $tables = [];
+        foreach ($items as $item) {
+            $tables[$item->get_name()] = $item;
+        }
+
+        $this->assertArrayHasKey(autograde_enabler::TABLE, $tables);
+        $this->assertSame(
+            ['cmid', 'userid', 'timemodified'],
+            array_keys($tables[autograde_enabler::TABLE]->get_privacy_fields())
+        );
+    }
+
+    public function test_the_teacher_who_switched_automatic_grading_on_is_found_and_exported(): void {
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        autograde_enabler::record((int) $this->context->instanceid, (int) $teacher->id);
+
+        $this->assertEquals([$this->context->id], provider::get_contexts_for_userid((int) $teacher->id)->get_contextids());
+        $userlist = new userlist($this->context, 'plagiarism_dixeo');
+        provider::get_users_in_context($userlist);
+        $this->assertEquals([(int) $teacher->id], $userlist->get_userids());
+
+        provider::export_user_data(new approved_contextlist($teacher, 'plagiarism_dixeo', [$this->context->id]));
+
+        $data = writer::with_context($this->context)->get_data([get_string('enable_auto_grading', 'plagiarism_dixeo')]);
+        $this->assertNotEmpty($data->timemodified);
+    }
+
+    public function test_erasing_the_teacher_leaves_the_assignment_on_drafts(): void {
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        autograde_enabler::record((int) $this->context->instanceid, (int) $teacher->id);
+        autograde_enabler::record((int) $this->othercontext->instanceid, (int) $teacher->id);
+        $this->assertSame((int) $teacher->id, grade_applier::resolve_grader_id((int) $this->context->instanceid));
+
+        provider::delete_data_for_user(new approved_contextlist($teacher, 'plagiarism_dixeo', [$this->context->id]));
+
+        $this->assertSame(0, grade_applier::resolve_grader_id((int) $this->context->instanceid));
+        $this->assertSame((int) $teacher->id, autograde_enabler::get_userid((int) $this->othercontext->instanceid));
+
+        provider::delete_data_for_users(new approved_userlist($this->othercontext, 'plagiarism_dixeo', [(int) $teacher->id]));
+
+        $this->assertSame(0, autograde_enabler::get_userid((int) $this->othercontext->instanceid));
+    }
+
+    public function test_purging_the_activity_forgets_the_teacher(): void {
+        $teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
+        autograde_enabler::record((int) $this->context->instanceid, (int) $teacher->id);
+
+        provider::delete_data_for_all_users_in_context($this->context);
+
+        $this->assertSame(0, autograde_enabler::get_userid((int) $this->context->instanceid));
     }
 }

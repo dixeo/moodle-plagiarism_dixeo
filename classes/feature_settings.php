@@ -46,9 +46,6 @@ class feature_settings {
     /** @var string When automatic analysis runs. Dixeo level only. */
     public const TRIGGER = 'assign_trigger';
 
-    /** @var string Sync or queued analysis. Dixeo level only. */
-    public const EVALUATION_MODE = 'evaluation_mode';
-
     /** @var string Student disclosure text. Dixeo level only. */
     public const DISCLOSURE = 'student_disclosure';
 

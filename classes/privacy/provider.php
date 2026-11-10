@@ -34,12 +34,13 @@ use core_privacy\local\request\writer;
 use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\feedback\grade_feedback_storage;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
+use plagiarism_dixeo\grading\autograde_enabler;
 
 /**
  * Exports and deletes the analysis data Dixeo stores against assignment submissions.
  *
- * Every record is anchored to a submission, so all data is reported at the context of the
- * activity it belongs to. Deleting a course or an assignment therefore purges it.
+ * Every analysis is anchored to a submission and every automatic grading record to an
+ * assignment, so all data is reported at the context of the activity it belongs to.
  */
 class provider implements
     \core_privacy\local\metadata\provider,
@@ -131,6 +132,16 @@ class provider implements
             'privacy:metadata:gradefeedback'
         );
 
+        $collection->add_database_table(
+            autograde_enabler::TABLE,
+            [
+                'cmid' => 'privacy:metadata:plagiarism_dixeo_autograde:cmid',
+                'userid' => 'privacy:metadata:plagiarism_dixeo_autograde:userid',
+                'timemodified' => 'privacy:metadata:plagiarism_dixeo_autograde:timemodified',
+            ],
+            'privacy:metadata:plagiarism_dixeo_autograde'
+        );
+
         $collection->add_external_location_link(
             'dixeo',
             [
@@ -175,6 +186,16 @@ class provider implements
             );
         }
 
+        $contextlist->add_from_sql(
+            "SELECT ctx.id
+               FROM {context} ctx
+               JOIN {course_modules} cm ON cm.id = ctx.instanceid
+               JOIN {" . autograde_enabler::TABLE . "} ag ON ag.cmid = cm.id
+              WHERE ctx.contextlevel = :contextlevel
+                    AND ag.userid = :userid",
+            ['contextlevel' => CONTEXT_MODULE, 'userid' => $userid]
+        );
+
         return $contextlist;
     }
 
@@ -189,6 +210,12 @@ class provider implements
         if ($assignid === null) {
             return;
         }
+
+        $userlist->add_from_sql(
+            'userid',
+            'SELECT userid FROM {' . autograde_enabler::TABLE . '} WHERE cmid = :cmid',
+            ['cmid' => (int) $context->instanceid]
+        );
 
         foreach (array_keys(self::get_tables()) as $table) {
             $userlist->add_from_sql(
@@ -222,6 +249,8 @@ class provider implements
                 continue;
             }
 
+            self::export_autograde($context, $userid);
+
             foreach (self::get_tables() as $table => $pathkey) {
                 $records = self::get_records($table, $assignid, [$userid]);
                 if (!$records) {
@@ -247,6 +276,13 @@ class provider implements
      * @param \context $context Context being purged.
      */
     public static function delete_data_for_all_users_in_context(\context $context): void {
+        global $DB;
+
+        if ($context->contextlevel != CONTEXT_MODULE) {
+            return;
+        }
+        $DB->delete_records(autograde_enabler::TABLE, ['cmid' => (int) $context->instanceid]);
+
         $assignid = self::get_assign_instance($context);
         if ($assignid === null) {
             return;
@@ -261,9 +297,14 @@ class provider implements
      * @param approved_contextlist $contextlist Approved contexts.
      */
     public static function delete_data_for_user(approved_contextlist $contextlist): void {
+        global $DB;
+
         $userid = (int) $contextlist->get_user()->id;
 
         foreach ($contextlist->get_contexts() as $context) {
+            if ($context->contextlevel == CONTEXT_MODULE) {
+                $DB->delete_records(autograde_enabler::TABLE, ['cmid' => (int) $context->instanceid, 'userid' => $userid]);
+            }
             $assignid = self::get_assign_instance($context);
             if ($assignid === null) {
                 continue;
@@ -279,17 +320,47 @@ class provider implements
      * @param approved_userlist $userlist Approved users.
      */
     public static function delete_data_for_users(approved_userlist $userlist): void {
-        $assignid = self::get_assign_instance($userlist->get_context());
+        global $DB;
+
+        $context = $userlist->get_context();
+        $userids = $userlist->get_userids();
+        if (!$userids || $context->contextlevel != CONTEXT_MODULE) {
+            return;
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid');
+        $params['cmid'] = (int) $context->instanceid;
+        $DB->delete_records_select(autograde_enabler::TABLE, "cmid = :cmid AND userid $insql", $params);
+
+        $assignid = self::get_assign_instance($context);
         if ($assignid === null) {
             return;
         }
 
-        $userids = $userlist->get_userids();
-        if (!$userids) {
+        self::delete_records($assignid, $userids);
+    }
+
+    /**
+     * Export that the user switched automatic grading on for this assignment, and when.
+     *
+     * @param \context $context Assignment context.
+     * @param int $userid User being exported.
+     */
+    private static function export_autograde(\context $context, int $userid): void {
+        global $DB;
+
+        $record = $DB->get_record(autograde_enabler::TABLE, ['cmid' => (int) $context->instanceid, 'userid' => $userid]);
+        if (!$record) {
             return;
         }
 
-        self::delete_records($assignid, $userids);
+        writer::with_context($context)->export_data(
+            [get_string('enable_auto_grading', 'plagiarism_dixeo')],
+            (object) [
+                'enable_auto_grading' => transform::yesno(true),
+                'timemodified' => transform::datetime((int) $record->timemodified),
+            ]
+        );
     }
 
     /**

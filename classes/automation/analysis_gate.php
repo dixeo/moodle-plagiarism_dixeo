@@ -38,12 +38,6 @@ class analysis_gate {
     /** @var string Analyse only when the student submits for grading. */
     public const TRIGGER_SUBMIT = 'submit';
 
-    /** @var string Queue analysis for later. */
-    public const MODE_ASYNC = 'async';
-
-    /** @var string Run analysis in the observer. */
-    public const MODE_SYNC = 'sync';
-
     /**
      * Whether the plagiarism subsystem and the Dixeo master switch allow analysis.
      *
@@ -73,29 +67,6 @@ class analysis_gate {
         );
 
         return $trigger === self::TRIGGER_UPLOAD ? self::TRIGGER_UPLOAD : self::TRIGGER_SUBMIT;
-    }
-
-    /**
-     * Whether analysis runs in the observer or is queued.
-     *
-     * @return string One of the MODE_* constants.
-     */
-    public static function get_evaluation_mode(): string {
-        $mode = \plagiarism_dixeo\feature_settings::value(
-            \plagiarism_dixeo\feature_settings::EVALUATION_MODE,
-            \context_system::instance()
-        );
-
-        return $mode === self::MODE_SYNC ? self::MODE_SYNC : self::MODE_ASYNC;
-    }
-
-    /**
-     * Whether analysis should run before the observer returns.
-     *
-     * @return bool
-     */
-    public static function is_sync(): bool {
-        return self::get_evaluation_mode() === self::MODE_SYNC;
     }
 
     /**

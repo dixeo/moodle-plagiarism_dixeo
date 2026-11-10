@@ -17,7 +17,8 @@
 /**
  * Event observers for automatic submission analysis and its stored results.
  *
- * Handlers read configuration, keep the plugin's own rows in step and queue work.
+ * Handlers read configuration, keep the plugin's own rows in step and queue work. None of
+ * them calls the Dixeo service, so they are safe to run inside the student's submission request.
  *
  * @package    plagiarism_dixeo
  * @copyright  2026 Dixeo (contact@dixeo.com)
