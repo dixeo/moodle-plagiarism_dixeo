@@ -25,9 +25,14 @@
 
 namespace plagiarism_dixeo;
 
+use local_dixeo\dto\job_binding_metadata;
 use local_dixeo\dto\job_status;
 use local_dixeo\external\service_factory;
+use local_dixeo\repository\job_repository;
 use local_dixeo\service\assign_ux_service;
+use local_dixeo\service\job_service;
+use plagiarism_dixeo\authorship\authorship_persistence_adapter;
+use plagiarism_dixeo\feedback\presubmission_feedback_storage;
 use plagiarism_dixeo\external\get_assign_job_status;
 
 defined('MOODLE_INTERNAL') || die();
@@ -103,7 +108,7 @@ final class get_assign_job_status_test extends \advanced_testcase {
 
         $mock = $this->createMock(assign_ux_service::class);
         $mock->expects($this->once())
-            ->method('get_status')
+            ->method('get_status_for_module')
             ->willThrowException(new \RuntimeException('internal job table leak'));
         service_factory::set_test_assign_ux_service($mock);
 
@@ -141,7 +146,7 @@ final class get_assign_job_status_test extends \advanced_testcase {
         );
 
         $mock = $this->createMock(assign_ux_service::class);
-        $mock->expects($this->once())->method('get_status')->willReturn($status);
+        $mock->expects($this->once())->method('get_status_for_module')->willReturn($status);
         $mock->expects($this->once())
             ->method('map_review_result')
             ->willReturn(['feedback_html' => '<p>Coaching tip</p>']);
@@ -194,7 +199,7 @@ final class get_assign_job_status_test extends \advanced_testcase {
         );
 
         $mock = $this->createMock(assign_ux_service::class);
-        $mock->method('get_status')->willReturn($status);
+        $mock->method('get_status_for_module')->willReturn($status);
         $mock->method('map_review_result')->willReturn(['feedback_html' => '<p>Kept after reload.</p>']);
         service_factory::set_test_assign_ux_service($mock);
 
@@ -208,5 +213,119 @@ final class get_assign_job_status_test extends \advanced_testcase {
         );
         $this->assertNotNull($stored);
         $this->assertStringContainsString('Kept after reload.', $stored->feedback);
+    }
+
+    /**
+     * A student with a submission in a fresh assignment with Dixeo on.
+     *
+     * @param \stdClass|null $course Course to use, or null for a new one.
+     * @param \stdClass|null $student Enrolled student to use, or null for a new one.
+     * @return array{course: \stdClass, assign: \stdClass, student: \stdClass, submissionid: int}
+     */
+    private function seed_submission(?\stdClass $course = null, ?\stdClass $student = null): array {
+        global $DB;
+
+        $course = $course ?? $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', [
+            'course' => $course->id,
+            'assignsubmission_onlinetext_enabled' => 1,
+        ]);
+        $student = $student ?? $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $this->enable_dixeo((int) $assign->cmid);
+        $submissionid = (int) $DB->insert_record('assign_submission', (object) [
+            'assignment' => $assign->id,
+            'userid' => $student->id,
+            'status' => 'draft',
+            'attemptnumber' => 0,
+            'latest' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        return ['course' => $course, 'assign' => $assign, 'student' => $student, 'submissionid' => $submissionid];
+    }
+
+    public function test_a_review_job_cannot_be_stored_against_another_assignment(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $a = $this->seed_submission();
+        $b = $this->seed_submission($a['course'], $a['student']);
+        $this->setUser($a['student']);
+
+        $repository = new job_repository();
+        $repository->register(
+            'job-from-a',
+            (int) $a['course']->id,
+            (int) $a['student']->id,
+            'default',
+            'assign_review',
+            assign_ux_service::COMPONENT,
+            job_binding_metadata::for_module('assign', (int) $a['assign']->cmid)
+        );
+        $job = $this->createMock(job_service::class);
+        $job->method('get_job_repository')->willReturn($repository);
+        $job->expects($this->never())->method('get_job_status');
+        service_factory::set_test_assign_ux_service(
+            new assign_ux_service($job, null, new authorship_persistence_adapter(), 'test-ns')
+        );
+
+        try {
+            get_assign_job_status::execute('job-from-a', (int) $a['course']->id, (int) $b['assign']->cmid, 'review');
+            $this->fail('A job started on another assignment must be refused.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('error:job_not_found', $e->errorcode);
+        }
+        $this->assertFalse($DB->record_exists(presubmission_feedback_storage::TABLE, ['itemid' => $b['submissionid']]));
+    }
+
+    public function test_feedback_is_not_stored_for_a_submission_edited_after_the_job_started(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $seed = $this->seed_submission();
+        $this->setUser($seed['student']);
+        $status = new job_status(
+            jobid: 'job-old',
+            type: 'assign_review',
+            status: job_status::STATUS_COMPLETED,
+            progress: 100,
+            createdat: time() - 120,
+            result: ['feedback_html' => '<p>About the old draft.</p>'],
+        );
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->method('get_status_for_module')->willReturn($status);
+        $mock->method('map_review_result')->willReturn(['feedback_html' => '<p>About the old draft.</p>']);
+        service_factory::set_test_assign_ux_service($mock);
+
+        $result = get_assign_job_status::execute('job-old', (int) $seed['course']->id, (int) $seed['assign']->cmid, 'review');
+
+        $this->assertSame('completed', $result['status']);
+        $this->assertFalse($DB->record_exists(presubmission_feedback_storage::TABLE, ['itemid' => $seed['submissionid']]));
+    }
+
+    public function test_a_failed_job_never_returns_the_provider_error_text(): void {
+        $this->resetAfterTest();
+        $seed = $this->seed_submission();
+        $this->setUser($seed['student']);
+        $status = new job_status(
+            jobid: 'job-failed',
+            type: 'assign_review',
+            status: job_status::STATUS_FAILED,
+            progress: 100,
+            createdat: time(),
+            errorcode: 'internal_error',
+            errormessage: 'secret upstream text',
+        );
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->method('get_status_for_module')->willReturn($status);
+        service_factory::set_test_assign_ux_service($mock);
+
+        $result = get_assign_job_status::execute('job-failed', (int) $seed['course']->id, (int) $seed['assign']->cmid, 'review');
+
+        $this->assertDebuggingCalled();
+        $this->assertSame('failed', $result['status']);
+        $this->assertStringNotContainsString('secret upstream text', $result['errormessage']);
+        $this->assertNotSame('', $result['errormessage']);
     }
 }

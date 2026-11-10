@@ -99,14 +99,20 @@ class get_assign_job_status extends external_api {
 
         try {
             $service = service_factory::get_assign_ux_service(new authorship_persistence_adapter());
-            $status = $service->get_status($params['jobid'], $params['courseid'], (int) $USER->id);
+            $status = $service->get_status_for_module(
+                $params['jobid'],
+                $params['courseid'],
+                $params['cmid'],
+                (int) $USER->id
+            );
 
             if ($status->status === job_status::STATUS_PENDING || $status->status === job_status::STATUS_PROCESSING) {
                 return self::pending_payload($params['jobid'], $status, $params['courseid'], $flow);
             }
 
             if ($status->status === job_status::STATUS_FAILED) {
-                $msg = $status->errormessage ?: get_string('assign_ux_result_missing', 'local_dixeo');
+                $client = response_factory::client_job_status($status, 'assign_ux_result_missing', 'local_dixeo');
+                $msg = (string) ($client['error']['detail'] ?? get_string('assign_ux_result_missing', 'local_dixeo'));
                 return self::failed_payload($params['jobid'], $params['courseid'], $flow, $msg);
             }
 
@@ -125,6 +131,10 @@ class get_assign_job_status extends external_api {
         } catch (\required_capability_exception | \require_login_exception $e) {
             throw $e;
         } catch (\Throwable $e) {
+            // A job started elsewhere, by someone else or for another assignment is refused, not reported as a failure.
+            if ($e instanceof \moodle_exception && $e->errorcode === 'error:job_not_found' && $e->module === 'local_dixeo') {
+                throw $e;
+            }
             $safe = response_factory::safe_message($e);
             return self::failed_payload($params['jobid'], $params['courseid'], $flow, $safe);
         }
@@ -220,7 +230,7 @@ class get_assign_job_status extends external_api {
             'filter' => false,
             'context' => $modcontext,
         ]);
-        self::store_review_feedback($cmid, $userid, (string) ($mapped['feedback_html'] ?? ''));
+        self::store_review_feedback($cmid, $userid, (string) ($mapped['feedback_html'] ?? ''), (int) $status->createdat);
         $classes = 'alert alert-info alert-block fade in alert-dismissible plagiarism-dixeo-review-feedback';
         $html = '<div class="' . $classes . '" role="alert">' . $clean . '</div>';
         return [
@@ -236,11 +246,16 @@ class get_assign_job_status extends external_api {
     /**
      * Keep the Analyze result so it is still shown after a reload.
      *
+     * The feedback is stored only against the submission it was computed on: nothing is stored
+     * when the submission changed after the job was created, and an identical stored result for
+     * that version is not rewritten on later polls.
+     *
      * @param int $cmid Assign course module id.
      * @param int $userid Student user id.
      * @param string $feedback Feedback HTML from the API.
+     * @param int $jobcreated When the job was created, as a unix timestamp.
      */
-    protected static function store_review_feedback(int $cmid, int $userid, string $feedback): void {
+    protected static function store_review_feedback(int $cmid, int $userid, string $feedback, int $jobcreated): void {
         global $DB;
 
         $feedback = trim($feedback);
@@ -258,7 +273,11 @@ class get_assign_job_status extends external_api {
             ['assignment' => (int) $cm->instance, 'userid' => $userid, 'latest' => 1],
             'id,timemodified,attemptnumber'
         );
-        if (!$submission) {
+        if (!$submission || (int) $submission->timemodified > $jobcreated) {
+            return;
+        }
+        $existing = presubmission_feedback_storage::get_by_context($userid, 'mod_assign', 'submission', (int) $submission->id);
+        if ($existing && (int) $existing->source_timemodified === (int) $submission->timemodified) {
             return;
         }
 
