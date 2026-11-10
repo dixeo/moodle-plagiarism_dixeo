@@ -32,6 +32,7 @@ use local_dixeo\exception\consent_required_exception;
 use local_dixeo\external\response_factory;
 use local_dixeo\external\service_factory;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
+use plagiarism_dixeo\event\analysis_requested;
 
 
 /**
@@ -57,19 +58,33 @@ class mod_assign_pre_submission extends external_api {
      * @throws \moodle_exception
      */
     public static function execute(int $id): array {
-        global $USER;
+        global $DB, $USER;
 
         $params = self::validate_parameters(self::execute_parameters(), [
             'id' => $id,
         ]);
 
-        assign_access::require_student_analyze($params['id']);
+        $context = assign_access::require_student_analyze($params['id']);
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
         $courseid = (int) $cm->course;
 
         try {
             $service = service_factory::get_assign_ux_service(new authorship_persistence_adapter());
             $operation = $service->submit_review($courseid, (int) $cm->id, (int) $USER->id);
+
+            analysis_requested::create([
+                'context' => $context,
+                'relateduserid' => (int) $USER->id,
+                'other' => [
+                    'itemid' => (int) $DB->get_field(
+                        'assign_submission',
+                        'id',
+                        ['assignment' => (int) $cm->instance, 'userid' => (int) $USER->id, 'latest' => 1],
+                        IGNORE_MULTIPLE
+                    ),
+                    'trigger' => 'manual',
+                ],
+            ])->trigger();
 
             return [
                 'jobid' => $operation->jobid,

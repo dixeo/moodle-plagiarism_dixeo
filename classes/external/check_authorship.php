@@ -36,6 +36,7 @@ use local_dixeo\service\assign_ux_service;
 use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
+use plagiarism_dixeo\event\authorship_checked;
 
 
 /**
@@ -214,6 +215,14 @@ class check_authorship extends external_api {
                 $quizdata,
                 $explanation
             );
+        }
+        if ($record) {
+            authorship_checked::create([
+                'context' => \context_module::instance((int) $cm->id),
+                'objectid' => (int) $record->id,
+                'relateduserid' => (int) $USER->id,
+                'other' => ['status' => (string) $record->status],
+            ])->trigger();
         }
 
         $recordid = ($record && $quizdata) ? (int) $record->id : 0;

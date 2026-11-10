@@ -34,6 +34,7 @@ use local_dixeo\external\response_factory;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_submission_reader;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
+use plagiarism_dixeo\event\analysis_requested;
 
 
 /**
@@ -66,7 +67,7 @@ class mod_assign_grade_submission extends external_api {
             'userid' => $userid,
         ]);
 
-        assign_access::require_teacher_grade_for_user($params['id'], $params['userid']);
+        $context = assign_access::require_teacher_grade_for_user($params['id'], $params['userid']);
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
         $courseid = (int) $cm->course;
 
@@ -87,6 +88,12 @@ class mod_assign_grade_submission extends external_api {
                 $params['userid'],
                 $authorship
             );
+
+            analysis_requested::create([
+                'context' => $context,
+                'relateduserid' => (int) $params['userid'],
+                'other' => ['itemid' => $submissionid, 'trigger' => 'manual'],
+            ])->trigger();
 
             return [
                 'jobid' => $operation->jobid,
