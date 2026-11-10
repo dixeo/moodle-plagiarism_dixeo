@@ -25,7 +25,11 @@
 
 namespace plagiarism_dixeo;
 
+use local_dixeo\external\service_factory;
+use local_dixeo\service\assign_ux_service;
 use plagiarism_dixeo\external\assign_access;
+use plagiarism_dixeo\external\get_grade_draft;
+use plagiarism_dixeo\external\mod_assign_grade_submission;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -41,6 +45,36 @@ final class assign_access_test extends \advanced_testcase {
     public function setUp(): void {
         parent::setUp();
         $this->resetAfterTest(true);
+    }
+
+    protected function tearDown(): void {
+        service_factory::reset();
+        parent::tearDown();
+    }
+
+    /**
+     * A separate-groups assignment, a non-editing teacher in group A and a student in group B.
+     *
+     * @return array{course: \stdClass, assign: \stdClass, teacher: \stdClass, peer: \stdClass, student: \stdClass}
+     */
+    private function separate_groups(): array {
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $assign = $generator->create_module('assign', ['course' => $course->id, 'groupmode' => SEPARATEGROUPS]);
+        $this->enable_dixeo((int) $assign->cmid);
+        $teacher = $generator->create_and_enrol($course, 'teacher');
+        $peer = $generator->create_and_enrol($course, 'student');
+        $student = $generator->create_and_enrol($course, 'student');
+        $groupa = $generator->create_group(['courseid' => $course->id]);
+        $groupb = $generator->create_group(['courseid' => $course->id]);
+        $generator->create_group_member(['groupid' => $groupa->id, 'userid' => $teacher->id]);
+        $generator->create_group_member(['groupid' => $groupa->id, 'userid' => $peer->id]);
+        $generator->create_group_member(['groupid' => $groupb->id, 'userid' => $student->id]);
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->expects($this->never())->method('submit_grade');
+        service_factory::set_test_assign_ux_service($mock);
+
+        return ['course' => $course, 'assign' => $assign, 'teacher' => $teacher, 'peer' => $peer, 'student' => $student];
     }
 
     /**
@@ -186,5 +220,46 @@ final class assign_access_test extends \advanced_testcase {
 
         $context = assign_access::require_student_analyze_from_authorship($record);
         $this->assertSame((int) $assign->cmid, (int) $context->instanceid);
+    }
+
+    public function test_teacher_may_grade_a_student_of_their_own_group(): void {
+        $seed = $this->separate_groups();
+        $this->setUser($seed['teacher']);
+
+        $context = assign_access::require_teacher_grade_for_user((int) $seed['assign']->cmid, (int) $seed['peer']->id);
+
+        $this->assertSame((int) $seed['assign']->cmid, (int) $context->instanceid);
+    }
+
+    public function test_grade_assist_refuses_a_student_of_another_separate_group(): void {
+        $seed = $this->separate_groups();
+        $this->setUser($seed['teacher']);
+
+        $this->expectException(\required_capability_exception::class);
+        mod_assign_grade_submission::execute((int) $seed['assign']->cmid, (int) $seed['student']->id);
+    }
+
+    public function test_grade_draft_refuses_a_student_of_another_separate_group(): void {
+        $seed = $this->separate_groups();
+        $this->setUser($seed['teacher']);
+
+        $this->expectException(\required_capability_exception::class);
+        get_grade_draft::execute((int) $seed['assign']->cmid, (int) $seed['student']->id);
+    }
+
+    public function test_teacher_cannot_target_a_user_who_is_not_a_participant(): void {
+        $seed = $this->separate_groups();
+        $outsider = $this->getDataGenerator()->create_user();
+        $this->setUser($seed['teacher']);
+
+        try {
+            mod_assign_grade_submission::execute((int) $seed['assign']->cmid, (int) $outsider->id);
+            $this->fail('A user outside the course must be refused.');
+        } catch (\required_capability_exception $e) {
+            $this->assertInstanceOf(\required_capability_exception::class, $e);
+        }
+
+        $this->expectException(\required_capability_exception::class);
+        get_grade_draft::execute((int) $seed['assign']->cmid, (int) $outsider->id);
     }
 }

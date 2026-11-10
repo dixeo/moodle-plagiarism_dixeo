@@ -66,7 +66,7 @@ class mod_assign_grade_submission extends external_api {
             'userid' => $userid,
         ]);
 
-        assign_access::require_teacher_grade($params['id']);
+        assign_access::require_teacher_grade_for_user($params['id'], $params['userid']);
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
         $courseid = (int) $cm->course;
 

@@ -88,6 +88,31 @@ final class assign_access {
     }
 
     /**
+     * Require teacher Assist grading, then that the teacher may see this student's submission.
+     *
+     * Core's grader rules apply: the student must be an active participant the teacher can
+     * see, and in separate groups the teacher must share a group with them or see all groups.
+     *
+     * @param int $cmid Assign course module id.
+     * @param int $userid Student being graded.
+     * @return context_module
+     * @throws \required_capability_exception When the teacher may not grade this student.
+     */
+    public static function require_teacher_grade_for_user(int $cmid, int $userid): context_module {
+        global $CFG;
+
+        $context = self::require_teacher_grade($cmid);
+        require_once($CFG->dirroot . '/mod/assign/locallib.php');
+        $cm = get_coursemodule_from_id('assign', $cmid, 0, false, MUST_EXIST);
+        $course = get_course($cm->course);
+        $assign = new \assign($context, $cm, $course);
+        if (!$assign->can_view_submission($userid) || !groups_user_groups_visible($course, $userid, $cm)) {
+            throw new \required_capability_exception($context, 'mod/assign:grade', 'nopermissions', '');
+        }
+        return $context;
+    }
+
+    /**
      * Refuse when the site or this assignment has Dixeo switched off.
      *
      * Capability checks run first so an outsider still sees a login or capability error

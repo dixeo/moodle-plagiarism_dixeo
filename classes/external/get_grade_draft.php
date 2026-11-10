@@ -72,7 +72,7 @@ class get_grade_draft extends external_api {
             'userid' => $userid,
         ]);
 
-        $context = assign_access::require_teacher_grade($params['id']);
+        $context = assign_access::require_teacher_grade_for_user($params['id'], $params['userid']);
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
 
         $submissionid = (int) $DB->get_field(
