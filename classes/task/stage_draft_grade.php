@@ -24,6 +24,7 @@
 
 namespace plagiarism_dixeo\task;
 
+use local_dixeo\exception\consent_required_exception;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_submission_reader;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
@@ -100,7 +101,13 @@ class stage_draft_grade extends \core\task\adhoc_task {
         $assignmentcontext = $reader->get_assignment_context($cmid, $courseid);
 
         $service = service_factory::get_assign_ux_service(new authorship_persistence_adapter());
-        $operation = $service->submit_grade_and_wait($courseid, $cmid, $userid);
+        try {
+            $operation = $service->submit_grade_and_wait($courseid, $cmid, $userid);
+        } catch (consent_required_exception $e) {
+            // Terms withdrawn since queueing: nothing is sent and a retry would not help.
+            mtrace('plagiarism_dixeo: terms not current, nothing sent.');
+            return;
+        }
         if (!$operation->completed) {
             throw new \moodle_exception('automation_grade_incomplete', 'plagiarism_dixeo');
         }

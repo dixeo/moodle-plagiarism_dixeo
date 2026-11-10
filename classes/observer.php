@@ -286,6 +286,10 @@ class observer {
         if ($cmid <= 0 || $courseid <= 0 || $userid <= 0 || $submissionid <= 0) {
             return;
         }
+        // A student without the current terms is skipped; the retry sweep picks the work up once they accept.
+        if (!(new \local_dixeo\service\consent_service())->may_process_for($userid, $courseid)) {
+            return;
+        }
 
         $task->set_component('plagiarism_dixeo');
         $task->set_userid($userid);

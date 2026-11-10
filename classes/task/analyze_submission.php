@@ -24,6 +24,7 @@
 
 namespace plagiarism_dixeo\task;
 
+use local_dixeo\exception\consent_required_exception;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_ux_service;
 use plagiarism_dixeo\authorship\author_storage;
@@ -107,8 +108,13 @@ class analyze_submission extends \core\task\adhoc_task {
 
         $service = service_factory::get_assign_ux_service(new authorship_persistence_adapter());
 
-        $this->store_review($service, $context, $submission, $courseid, $cmid, $userid);
-        $this->store_authorship($service, $context, $submission, $courseid, $cmid, $userid);
+        // Terms withdrawn since queueing: nothing is sent and a retry would not help.
+        try {
+            $this->store_review($service, $context, $submission, $courseid, $cmid, $userid);
+            $this->store_authorship($service, $context, $submission, $courseid, $cmid, $userid);
+        } catch (consent_required_exception $e) {
+            mtrace('plagiarism_dixeo: terms not current, nothing sent.');
+        }
     }
 
     /**

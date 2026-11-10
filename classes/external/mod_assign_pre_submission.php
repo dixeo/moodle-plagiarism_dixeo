@@ -28,6 +28,7 @@ use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_dixeo\exception\consent_required_exception;
 use local_dixeo\external\response_factory;
 use local_dixeo\external\service_factory;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
@@ -78,7 +79,7 @@ class mod_assign_pre_submission extends external_api {
                 'html' => '',
                 'errormessage' => '',
             ];
-        } catch (\required_capability_exception | \require_login_exception $e) {
+        } catch (\required_capability_exception | \require_login_exception | consent_required_exception $e) {
             throw $e;
         } catch (\Throwable $e) {
             $safe = response_factory::safe_message($e);

@@ -213,6 +213,8 @@ final class external_safe_errors_test extends \advanced_testcase {
         );
         $this->assertNotNull($record);
 
+        $this->getDataGenerator()->get_plugin_generator('local_dixeo')
+            ->create_terms_acceptance(['userid' => (int) $student->id]);
         $mock = $this->createMock(assign_ux_service::class);
         $mock->expects($this->once())
             ->method('submit_authorship_and_wait')

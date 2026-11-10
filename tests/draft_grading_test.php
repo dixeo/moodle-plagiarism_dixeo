@@ -76,6 +76,8 @@ final class draft_grading_test extends \advanced_testcase {
         $this->course = $this->getDataGenerator()->create_course();
         $this->assign = $this->getDataGenerator()->create_module('assign', ['course' => $this->course->id]);
         $this->student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $this->getDataGenerator()->get_plugin_generator('local_dixeo')
+            ->create_terms_acceptance(['userid' => (int) $this->student->id]);
         $this->teacher = $this->getDataGenerator()->create_and_enrol($this->course, 'editingteacher');
 
         $now = time();

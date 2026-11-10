@@ -25,6 +25,7 @@
 namespace plagiarism_dixeo\task;
 
 use core\task\manager;
+use local_dixeo\service\consent_service;
 use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\automation\analysis_gate;
 
@@ -33,7 +34,8 @@ use plagiarism_dixeo\automation\analysis_gate;
  *
  * An adhoc task that exhausts its retries, or a site that was down when the queue was
  * drained, can leave a record stuck without a score. This sweeps those up rather than
- * leaving the student with a panel that never resolves.
+ * leaving the student with a panel that never resolves. A student who has not accepted the
+ * current Dixeo Terms of Use is skipped until they do.
  */
 class retry_pending_analysis extends \core\task\scheduled_task {
     /** @var int How many stuck records to requeue in one run. */
@@ -67,6 +69,7 @@ class retry_pending_analysis extends \core\task\scheduled_task {
         require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
         $now = time();
         $requeued = 0;
+        $consent = new consent_service();
 
         foreach (author_storage::get_pending_records(self::BATCH_SIZE) as $record) {
             $age = $now - (int) $record->timecreated;
@@ -88,6 +91,9 @@ class retry_pending_analysis extends \core\task\scheduled_task {
                 continue;
             }
             if (!analysis_gate::is_enabled_for_activity((int) $cm->id)) {
+                continue;
+            }
+            if (!$consent->may_process_for((int) $record->userid, (int) $cm->course)) {
                 continue;
             }
 

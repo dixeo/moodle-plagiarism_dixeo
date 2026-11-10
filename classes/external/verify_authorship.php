@@ -28,9 +28,11 @@ use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_dixeo\exception\consent_required_exception;
 use local_dixeo\external\response_factory;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_ux_service;
+use local_dixeo\service\consent_service;
 use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 use plagiarism_dixeo\authorship\quiz_session;
@@ -76,6 +78,7 @@ class verify_authorship extends external_api {
         }
 
         $context = assign_access::require_student_authorship_from_record($record);
+        (new consent_service())->require_accepted((int) $USER->id, $context);
         $cm = null;
         $courseid = 0;
         try {
@@ -164,7 +167,7 @@ class verify_authorship extends external_api {
                 $courseid,
                 ''
             );
-        } catch (\required_capability_exception | \require_login_exception $e) {
+        } catch (\required_capability_exception | \require_login_exception | consent_required_exception $e) {
             throw $e;
         } catch (\Throwable $e) {
             return self::payload(false, 0.0, '', 'failed', $courseid, response_factory::safe_message($e));
