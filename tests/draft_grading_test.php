@@ -554,4 +554,23 @@ final class draft_grading_test extends \advanced_testcase {
         $this->assertFalse($applied);
         $this->assertNull($this->assign_grade());
     }
+
+    public function test_a_proposal_that_does_not_fit_the_assignment_writes_nothing(): void {
+        global $DB;
+
+        $this->switch_on_as($this->teacher);
+        $service = $this->getMockBuilder(assign_ux_service::class)
+            ->onlyMethods(['submit_grade_and_wait'])
+            ->getMock();
+        $service->expects($this->once())
+            ->method('submit_grade_and_wait')
+            ->willReturn(new operation_result(true, 'job-grade', ['grade' => 150, 'feedback' => 'Too high']));
+        service_factory::set_test_assign_ux_service($service);
+
+        $this->run_staging_task();
+
+        $this->assertNull($this->stored_draft());
+        $this->assertSame(0, $DB->count_records('task_adhoc', ['classname' => '\\' . apply_draft_grade::class]));
+        $this->assertNull($this->assign_grade());
+    }
 }

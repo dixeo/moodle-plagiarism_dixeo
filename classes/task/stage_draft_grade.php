@@ -114,7 +114,10 @@ class stage_draft_grade extends \core\task\adhoc_task {
 
         $mapped = $service->map_grade_result($assignmentcontext, $operation->result);
         if (isset($mapped['error'])) {
-            throw new \moodle_exception('automation_grade_failed', 'plagiarism_dixeo', '', $mapped['error']);
+            // A proposal that does not fit the assignment is final for this submission version:
+            // retrying would pay for the same answer again.
+            mtrace("plagiarism_dixeo: unusable grade proposal for submission $submissionid, nothing stored.");
+            return;
         }
 
         $transaction = $DB->start_delegated_transaction();
