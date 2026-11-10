@@ -33,12 +33,17 @@ use local_dixeo\external\response_factory;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_submission_reader;
 use local_dixeo\service\assign_ux_service;
+use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 
 
 /**
  * Authorship confidence (+ optional quiz) via Dixeo_API jobs.
+ *
+ * Questions are never returned here: the client starts the quiz clock with start_verification
+ * and reads the questions from get_verification_quiz. A settled result is returned as stored,
+ * and concurrent checks of one submission are serialised by a lock.
  */
 class check_authorship extends external_api {
     /**
@@ -82,7 +87,7 @@ class check_authorship extends external_api {
 
         $modulecontext = \context_module::instance((int) $cm->id);
         if (!authorship::is_enabled($modulecontext)) {
-            return self::result_payload(100.0, 0, '', '', 'completed', $courseid);
+            return self::result_payload(100.0, 0, '', 'completed', $courseid);
         }
 
         try {
@@ -92,113 +97,143 @@ class check_authorship extends external_api {
             $submissiondata = $reader->get_submission_data((int) $cm->id, (int) $USER->id, $courseid);
             $itemid = isset($submissiondata['submission']->id) ? (int) $submissiondata['submission']->id : 0;
 
-            $existing = authorship::find_resumable_record((int) $USER->id, $itemid);
-            if ($existing) {
+            $existing = $itemid > 0
+                ? author_storage::get_record_by_context((int) $USER->id, 'mod_assign', 'submission', $itemid)
+                : null;
+            if (authorship::is_resumable_record($existing)) {
                 return self::result_payload(
                     (float) ($existing->initial_confidence ?? 50.0),
                     (int) $existing->id,
-                    authorship::render_quiz_form($existing),
                     '',
                     'completed',
                     $courseid
                 );
             }
-
-            $confidenceop = $service->submit_authorship_and_wait(
-                $courseid,
-                (int) $cm->id,
-                (int) $USER->id,
-                assign_ux_service::MODE_CONFIDENCE
-            );
-            if (!$confidenceop->completed) {
-                $msg = get_string('assign_ux_result_missing', 'local_dixeo');
-                return self::result_payload(50.0, 0, '', $msg, 'failed', $courseid, $confidenceop->jobid);
-            }
-
-            $mapped = $service->map_authorship_result(assign_ux_service::MODE_CONFIDENCE, $confidenceop->result);
-            if (isset($mapped['error'])) {
-                return self::result_payload(50.0, 0, '', $mapped['error'], 'failed', $courseid, $confidenceop->jobid);
-            }
-
-            $score = (float) $mapped['confidence'];
-            $explanation = (string) ($mapped['explanation'] ?? '');
-            $quizdata = null;
-            $lastjobid = $confidenceop->jobid;
-
-            $activity = \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id);
-            if (
-                \plagiarism_dixeo\feature_settings::verification_quiz_on(\context_module::instance((int) $cm->id))
-                && authorship::is_quiz_required($score, (float) $activity['authorship_threshold'])
-            ) {
-                $counts = authorship::get_question_counts();
-                $quizop = $service->submit_authorship_and_wait(
+            // A finished result is final for this submission: it is returned, never re-run.
+            if ($existing && authorship::is_settled($existing)) {
+                return self::result_payload(
+                    (float) ($existing->final_confidence ?? $existing->initial_confidence ?? 50.0),
+                    0,
+                    '',
+                    'completed',
                     $courseid,
-                    (int) $cm->id,
-                    (int) $USER->id,
-                    assign_ux_service::MODE_QUIZ,
-                    [
-                        'trueFalseCount' => $counts['true_false'],
-                        'multipleChoiceCount' => $counts['multiple_choice'],
-                        'openCount' => $counts['open'],
-                        'initialConfidence' => $score,
-                    ]
-                );
-                if (!$quizop->completed) {
-                    $msg = get_string('assign_ux_result_missing', 'local_dixeo');
-                    return self::result_payload($score, 0, '', $msg, 'failed', $courseid, $quizop->jobid);
-                }
-
-                $quizmapped = $service->map_authorship_result(assign_ux_service::MODE_QUIZ, $quizop->result);
-                if (isset($quizmapped['error'])) {
-                    return self::result_payload($score, 0, '', $quizmapped['error'], 'failed', $courseid, $quizop->jobid);
-                }
-
-                $quizdata = ['questions' => $quizmapped['questions']];
-                $lastjobid = $quizop->jobid;
-            }
-
-            $record = null;
-            if ($itemid > 0) {
-                $record = $service->apply_authorship_confidence(
-                    (int) $USER->id,
-                    $itemid,
-                    $score,
-                    $quizdata,
-                    $explanation
+                    '',
+                    (float) \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id)['authorship_threshold']
                 );
             }
 
-            $quizhtml = '';
-            $recordid = 0;
-            if ($record && $quizdata) {
-                $recordid = (int) $record->id;
-                $quizhtml = authorship::render_quiz_form($record);
+            $lock = authorship::acquire_lock('authorship_submission_' . $itemid);
+            if (!$lock) {
+                $msg = get_string('assign_ux_result_missing', 'local_dixeo');
+                return self::result_payload(50.0, 0, $msg, 'failed', $courseid);
             }
-
-            return self::result_payload(
-                $score,
-                $recordid,
-                $quizhtml,
-                '',
-                'completed',
-                $courseid,
-                $lastjobid,
-                (float) $activity['authorship_threshold']
-            );
+            try {
+                return self::run_check($service, $cm, $courseid, $itemid);
+            } finally {
+                $lock->release();
+            }
         } catch (\required_capability_exception | \require_login_exception | consent_required_exception $e) {
             throw $e;
         } catch (\Throwable $e) {
             $safe = response_factory::safe_message($e);
-            return self::result_payload(50.0, 0, '', $safe, 'failed', $courseid);
+            return self::result_payload(50.0, 0, $safe, 'failed', $courseid);
         }
+    }
+
+    /**
+     * Run the confidence step, and the quiz step when required, then store the result.
+     *
+     * @param assign_ux_service $service Dixeo assign service.
+     * @param \stdClass $cm Assignment course module.
+     * @param int $courseid Course id.
+     * @param int $itemid Submission id, or 0 when there is none to store against.
+     * @return array
+     */
+    private static function run_check(assign_ux_service $service, \stdClass $cm, int $courseid, int $itemid): array {
+        global $USER;
+
+        $confidenceop = $service->submit_authorship_and_wait(
+            $courseid,
+            (int) $cm->id,
+            (int) $USER->id,
+            assign_ux_service::MODE_CONFIDENCE
+        );
+        if (!$confidenceop->completed) {
+            $msg = get_string('assign_ux_result_missing', 'local_dixeo');
+            return self::result_payload(50.0, 0, $msg, 'failed', $courseid, $confidenceop->jobid);
+        }
+
+        $mapped = $service->map_authorship_result(assign_ux_service::MODE_CONFIDENCE, $confidenceop->result);
+        if (isset($mapped['error'])) {
+            return self::result_payload(50.0, 0, $mapped['error'], 'failed', $courseid, $confidenceop->jobid);
+        }
+
+        $score = (float) $mapped['confidence'];
+        $explanation = (string) ($mapped['explanation'] ?? '');
+        $quizdata = null;
+        $lastjobid = $confidenceop->jobid;
+
+        $activity = \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id);
+        if (
+            \plagiarism_dixeo\feature_settings::verification_quiz_on(\context_module::instance((int) $cm->id))
+            && authorship::is_quiz_required($score, (float) $activity['authorship_threshold'])
+        ) {
+            $counts = authorship::get_question_counts();
+            $quizop = $service->submit_authorship_and_wait(
+                $courseid,
+                (int) $cm->id,
+                (int) $USER->id,
+                assign_ux_service::MODE_QUIZ,
+                [
+                    'trueFalseCount' => $counts['true_false'],
+                    'multipleChoiceCount' => $counts['multiple_choice'],
+                    'openCount' => $counts['open'],
+                    'initialConfidence' => $score,
+                ]
+            );
+            if (!$quizop->completed) {
+                $msg = get_string('assign_ux_result_missing', 'local_dixeo');
+                return self::result_payload($score, 0, $msg, 'failed', $courseid, $quizop->jobid);
+            }
+
+            $quizmapped = $service->map_authorship_result(assign_ux_service::MODE_QUIZ, $quizop->result);
+            if (isset($quizmapped['error'])) {
+                return self::result_payload($score, 0, $quizmapped['error'], 'failed', $courseid, $quizop->jobid);
+            }
+
+            $quizdata = ['questions' => $quizmapped['questions']];
+            $lastjobid = $quizop->jobid;
+        }
+
+        $record = null;
+        if ($itemid > 0) {
+            $record = $service->apply_authorship_confidence(
+                (int) $USER->id,
+                $itemid,
+                $score,
+                $quizdata,
+                $explanation
+            );
+        }
+
+        $recordid = ($record && $quizdata) ? (int) $record->id : 0;
+
+        return self::result_payload(
+            $score,
+            $recordid,
+            '',
+            'completed',
+            $courseid,
+            $lastjobid,
+            (float) $activity['authorship_threshold']
+        );
     }
 
     /**
      * Build the WS result payload.
      *
      * @param float $score Confidence score.
-     * @param int $recordid Record id.
-     * @param string $quizhtml Quiz HTML.
+     * @param int $recordid Record id of a quiz to sit, or 0.
      * @param string $errormessage Error message.
      * @param string $status Status.
      * @param int $courseid Course id.
@@ -209,7 +244,6 @@ class check_authorship extends external_api {
     protected static function result_payload(
         float $score,
         int $recordid,
-        string $quizhtml,
         string $errormessage,
         string $status,
         int $courseid,
@@ -220,7 +254,6 @@ class check_authorship extends external_api {
             'score' => $score,
             'threshold' => $threshold ?? (float) authorship::get_confidence_threshold(),
             'record_id' => $recordid,
-            'quiz_html' => $quizhtml,
             'jobid' => $jobid,
             'status' => $status,
             'progress' => $status === 'completed' || $status === 'failed' ? 100 : 0,
@@ -238,8 +271,10 @@ class check_authorship extends external_api {
         return new external_single_structure([
             'score' => new external_value(PARAM_FLOAT, 'Authorship confidence 0-100.'),
             'threshold' => new external_value(PARAM_FLOAT, 'Threshold below which quiz is required.'),
-            'record_id' => new external_value(PARAM_INT, 'Authorship record id if quiz was generated, else 0.'),
-            'quiz_html' => new external_value(PARAM_RAW, 'Quiz form HTML if quiz required, else empty.'),
+            'record_id' => new external_value(
+                PARAM_INT,
+                'Authorship record id when a verification quiz is waiting; its questions come from get_verification_quiz.'
+            ),
             'jobid' => new external_value(PARAM_RAW, 'Last remote job id.'),
             'status' => new external_value(PARAM_ALPHA, 'Job/flow status.'),
             'progress' => new external_value(PARAM_INT, 'Progress 0–100.'),

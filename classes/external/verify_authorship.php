@@ -71,14 +71,39 @@ class verify_authorship extends external_api {
             'responses' => $responses,
         ]);
 
-        $adapter = new authorship_persistence_adapter();
-        $record = $adapter->get_authorship_record($params['record_id']);
-        if (!$record || (int) $record->userid !== (int) $USER->id) {
-            return self::payload(false, 0.0, '', 'failed', 0, '');
-        }
-
+        $record = verification_access::require_own_open_quiz($params['record_id']);
         $context = assign_access::require_student_authorship_from_record($record);
         (new consent_service())->require_accepted((int) $USER->id, $context);
+
+        // One evaluation per quiz: a second submit waits for nothing and is refused.
+        $lock = authorship::acquire_lock('authorship_' . (int) $record->id);
+        if (!$lock) {
+            throw new \moodle_exception('quiz_not_available', 'plagiarism_dixeo');
+        }
+        try {
+            return self::evaluate((int) $record->id, $params['responses'], $context);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Evaluate the answers of an open, started quiz and store the final result.
+     *
+     * @param int $recordid Authorship record id.
+     * @param string $responses JSON object keyed by question id.
+     * @param \context_module $context Assignment context.
+     * @return array
+     * @throws \moodle_exception quiz_not_available once the quiz is finished, quiz_not_started before its clock runs.
+     */
+    private static function evaluate(int $recordid, string $responses, \context_module $context): array {
+        global $USER;
+
+        $record = verification_access::require_own_open_quiz($recordid);
+        $state = quiz_session::load($record);
+        verification_access::require_started($state);
+
+        $adapter = new authorship_persistence_adapter();
         $cm = null;
         $courseid = 0;
         try {
@@ -97,13 +122,12 @@ class verify_authorship extends external_api {
         }
 
         // Once the clock has run out only the answers already stored count, whatever is sent now.
-        $state = quiz_session::load($record);
         $expired = quiz_session::is_expired($state);
         $questionids = quiz_session::get_question_ids($record);
-        $submitted = $expired ? [] : quiz_session::validate_answers(
-            quiz_session::decode_payload($params['responses'], 'responses'),
+        $submitted = $expired ? [] : quiz_session::accepted_answers($record, $state, quiz_session::validate_answers(
+            quiz_session::decode_payload($responses, 'responses'),
             $questionids
-        );
+        ));
         $decoded = array_merge(quiz_session::get_answers($record), $submitted);
         $questions = quiz_session::get_questions($record);
 

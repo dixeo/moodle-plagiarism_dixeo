@@ -129,6 +129,7 @@ $string['question_locked'] = 'Domanda bloccata';
 $string['question_locked_tooltip'] = 'Questa domanda non può essere modificata';
 $string['quiz_expired'] = 'Il tempo è scaduto. Le risposte date finora sono state inviate.';
 $string['quiz_not_available'] = 'Questo quiz di verifica non è disponibile.';
+$string['quiz_not_started'] = 'Il test di verifica non è stato avviato. Avvialo prima di rispondere.';
 $string['quiz_payload_invalid'] = 'Il quiz di verifica ha inviato dati illeggibili ({$a}). Ricarica la pagina e riprova.';
 $string['quiz_payload_too_large'] = 'Il quiz di verifica ha inviato troppi dati ({$a}). Accorcia la tua risposta.';
 $string['quiz_time_remaining'] = 'Tempo rimanente: {$a}';

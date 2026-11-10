@@ -132,15 +132,16 @@ final class quiz_session_test extends \advanced_testcase {
         $record = $this->create_quiz_record();
 
         quiz_session::record_progress($record, ['q1' => 'true'], ['q1' => 12], 1);
-        quiz_session::record_progress($record, ['q2' => 'Because.'], ['q2' => 30], 2);
+        quiz_session::record_progress($record, ['q2' => 'Because.'], ['q2' => 30], 1);
 
         $reloaded = author_storage::get_record((int) $record->id);
         $this->assertSame(['q1' => 'true', 'q2' => 'Because.'], quiz_session::get_answers($reloaded));
 
         $state = quiz_session::load($reloaded);
         $this->assertSame(['q1' => 12, 'q2' => 30], $state['reported']);
-        $this->assertSame(2, $state['current_index']);
-        $this->assertSame(author_storage::STATUS_VERIFICATION_IN_PROGRESS, $reloaded->status);
+        $this->assertSame(1, $state['current_index']);
+        // Only start_verification moves the status; saving progress leaves it as stored.
+        $this->assertSame(author_storage::STATUS_VERIFICATION_REQUIRED, $reloaded->status);
     }
 
     public function test_answers_for_questions_that_were_not_asked_are_discarded(): void {

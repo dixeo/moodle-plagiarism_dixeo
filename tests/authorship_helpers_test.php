@@ -125,20 +125,4 @@ final class authorship_helpers_test extends \advanced_testcase {
             'quiz_data' => json_encode(['questions' => []]),
         ]));
     }
-
-    public function test_render_quiz_form_escapes_question_text(): void {
-        $html = authorship::render_quiz_form([
-            'questions' => [
-                [
-                    'id' => 'q1',
-                    'type' => authorship::QUESTION_TYPE_OPEN,
-                    'text' => '<script>alert(1)</script>',
-                ],
-            ],
-        ], ['record_id' => 9]);
-
-        $this->assertStringContainsString('data-authorship-record-id="9"', $html);
-        $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
-        $this->assertStringContainsString('&lt;script&gt;', $html);
-    }
 }

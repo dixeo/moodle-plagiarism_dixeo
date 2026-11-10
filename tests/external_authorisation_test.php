@@ -165,10 +165,12 @@ final class external_authorisation_test extends \advanced_testcase {
         );
         $this->setUser($this->student);
 
-        $result = verify_authorship::execute((int) $record->id, json_encode(['q1' => 'true']));
-
-        $this->assertFalse($result['success']);
-        $this->assertSame('failed', $result['status']);
+        try {
+            verify_authorship::execute((int) $record->id, json_encode(['q1' => 'true']));
+            $this->fail('Another student\'s quiz must be refused.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('quiz_not_available', $e->errorcode);
+        }
 
         // The other student's record is untouched.
         $stored = author_storage::get_record((int) $record->id);
@@ -179,10 +181,9 @@ final class external_authorisation_test extends \advanced_testcase {
     public function test_verify_authorship_refuses_an_unknown_record(): void {
         $this->setUser($this->student);
 
-        $result = verify_authorship::execute(999999, '{}');
-
-        $this->assertFalse($result['success']);
-        $this->assertSame('failed', $result['status']);
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('quiz_not_available', 'plagiarism_dixeo'));
+        verify_authorship::execute(999999, '{}');
     }
 
     public function test_grade_draft_refuses_a_user_outside_the_course(): void {

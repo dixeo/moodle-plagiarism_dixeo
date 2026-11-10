@@ -28,13 +28,16 @@ use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
+use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\authorship\quiz_session;
 
 /**
  * Stores answers as the student works through the quiz.
  *
- * Progress is saved so a reload does not lose answers. Once the clock has run out nothing
- * further is accepted: the answers already stored are what gets evaluated.
+ * Progress is saved so a reload does not lose answers. Nothing is accepted before the clock
+ * has been started, and once it has run out the answers already stored are what gets evaluated.
+ * A save runs under the same per-record lock as the start and the final evaluation, on a copy
+ * of the record read under that lock; while another request holds it, nothing is saved.
  */
 class save_verification_progress extends external_api {
     /**
@@ -83,23 +86,37 @@ class save_verification_progress extends external_api {
         assign_access::require_student_authorship_from_record($record);
 
         $state = quiz_session::load($record);
+        verification_access::require_started($state);
         if (quiz_session::is_expired($state)) {
             return verification_access::timing_payload($state, $record) + ['saved' => false];
         }
 
-        $questionids = quiz_session::get_question_ids($record);
-        $answers = quiz_session::validate_answers(
-            quiz_session::decode_payload($params['responses'], 'responses'),
-            $questionids
-        );
-        $reported = quiz_session::validate_timings(
-            quiz_session::decode_payload($params['timings'], 'timings'),
-            $questionids
-        );
+        $responses = quiz_session::decode_payload($params['responses'], 'responses');
+        $timings = quiz_session::decode_payload($params['timings'], 'timings');
 
-        $state = quiz_session::record_progress($record, $answers, $reported, $params['current_index']);
+        $lock = authorship::acquire_lock('authorship_' . (int) $record->id);
+        if (!$lock) {
+            // The quiz is being started or evaluated in another session.
+            return verification_access::timing_payload($state, $record) + ['saved' => false];
+        }
+        try {
+            $fresh = verification_access::require_own_open_quiz((int) $record->id);
+            $state = quiz_session::load($fresh);
+            verification_access::require_started($state);
+            if (quiz_session::is_expired($state)) {
+                return verification_access::timing_payload($state, $fresh) + ['saved' => false];
+            }
 
-        return verification_access::timing_payload($state, $record) + ['saved' => true];
+            $questionids = quiz_session::get_question_ids($fresh);
+            $answers = quiz_session::validate_answers($responses, $questionids);
+            $reported = quiz_session::validate_timings($timings, $questionids);
+
+            $state = quiz_session::record_progress($fresh, $answers, $reported, $params['current_index']);
+
+            return verification_access::timing_payload($state, $fresh) + ['saved' => true];
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

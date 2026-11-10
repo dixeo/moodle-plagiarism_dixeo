@@ -25,16 +25,23 @@
 
 namespace plagiarism_dixeo;
 
+use local_dixeo\dto\operation_result;
+use local_dixeo\external\service_factory;
+use local_dixeo\service\assign_ux_service;
 use plagiarism_dixeo\authorship\author_storage;
+use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\authorship\quiz_session;
+use plagiarism_dixeo\external\check_authorship;
 use plagiarism_dixeo\external\get_verification_quiz;
 use plagiarism_dixeo\external\save_verification_progress;
 use plagiarism_dixeo\external\start_verification;
+use plagiarism_dixeo\external\verify_authorship;
 
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+require_once($CFG->dirroot . '/plagiarism/dixeo/tests/fixtures/race_lock_factory.php');
 
 /**
  * The verification endpoints only serve the student who owns the quiz, and only while it is open.
@@ -43,6 +50,10 @@ require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
  * @covers \plagiarism_dixeo\external\get_verification_quiz
  * @covers \plagiarism_dixeo\external\save_verification_progress
  * @covers \plagiarism_dixeo\external\verification_access
+ * @covers \plagiarism_dixeo\external\verify_authorship
+ * @covers \plagiarism_dixeo\external\check_authorship
+ * @covers \plagiarism_dixeo\authorship\quiz_session::record_progress
+ * @covers \plagiarism_dixeo\authorship\quiz_session::accepted_answers
  */
 final class verification_externals_test extends \advanced_testcase {
     /** @var \stdClass Course holding the assignment under test. */
@@ -69,8 +80,13 @@ final class verification_externals_test extends \advanced_testcase {
         set_config('grading_enabled', 1, 'plagiarism_dixeo');
 
         $this->course = $this->getDataGenerator()->create_course();
-        $this->assign = $this->getDataGenerator()->create_module('assign', ['course' => $this->course->id]);
+        $this->assign = $this->getDataGenerator()->create_module('assign', [
+            'course' => $this->course->id,
+            'assignsubmission_onlinetext_enabled' => 1,
+        ]);
         $this->student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $this->getDataGenerator()->get_plugin_generator('local_dixeo')
+            ->create_terms_acceptance(['userid' => (int) $this->student->id]);
 
         $now = time();
         $submissionid = $DB->insert_record('assign_submission', (object) [
@@ -99,6 +115,78 @@ final class verification_externals_test extends \advanced_testcase {
                 ],
             ]
         );
+    }
+
+    protected function tearDown(): void {
+        \plagiarism_dixeo\tests\race_lock_factory::before_lock(null, null);
+        service_factory::reset();
+        parent::tearDown();
+    }
+
+    /**
+     * Use database row locks, which exclude each other within one process.
+     *
+     * @param callable|null $beforelock Change made by "another session" just before this quiz's record lock is taken.
+     */
+    private function use_row_locks(?callable $beforelock = null): void {
+        global $CFG;
+
+        if ($beforelock === null) {
+            $CFG->lock_factory = '\\core\\lock\\db_record_lock_factory';
+            return;
+        }
+        $CFG->lock_factory = '\\' . \plagiarism_dixeo\tests\race_lock_factory::class;
+        \plagiarism_dixeo\tests\race_lock_factory::before_lock('authorship_' . (int) $this->record->id, $beforelock);
+    }
+
+    /**
+     * Mark the quiz finished, as a final evaluation in another session would.
+     */
+    private function complete_quiz(): void {
+        author_storage::update_record((int) $this->record->id, [
+            'status' => author_storage::STATUS_COMPLETE,
+            'final_confidence' => 70.0,
+        ]);
+    }
+
+    /**
+     * Use a service that must not be asked for anything.
+     */
+    private function forbid_sends(): void {
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->expects($this->never())->method('submit_authorship_and_wait');
+        $mock->expects($this->never())->method('submit_authorship');
+        service_factory::set_test_assign_ux_service($mock);
+    }
+
+    /**
+     * Use a service whose final evaluation returns the given confidence.
+     *
+     * @param float $confidence Final confidence.
+     */
+    private function mock_final_evaluation(float $confidence): void {
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->expects($this->once())
+            ->method('submit_authorship_and_wait')
+            ->willReturn(new operation_result(true, 'job-final', ['final_confidence' => $confidence]));
+        $mock->method('map_authorship_result')->willReturn([
+            'final_confidence' => $confidence,
+            'grade' => null,
+            'explanation' => '',
+            'quiz_explanation' => '',
+            'question_feedbacks' => [],
+        ]);
+        $mock->method('apply_authorship_final')->willReturnCallback(
+            function (int $recordid, array $responses, float $final): \stdClass {
+                author_storage::update_record($recordid, [
+                    'status' => author_storage::STATUS_COMPLETE,
+                    'quiz_responses' => $responses,
+                    'final_confidence' => $final,
+                ]);
+                return author_storage::get_record($recordid);
+            }
+        );
+        service_factory::set_test_assign_ux_service($mock);
     }
 
     /**
@@ -260,5 +348,256 @@ final class verification_externals_test extends \advanced_testcase {
 
         $this->expectException(\moodle_exception::class);
         save_verification_progress::execute((int) $this->record->id, '{"q1": ');
+    }
+
+    public function test_answers_cannot_be_saved_before_the_clock_starts(): void {
+        $this->setUser($this->student);
+
+        try {
+            save_verification_progress::execute((int) $this->record->id, json_encode(['q1' => 'true']));
+            $this->fail('Answers before the quiz starts must be refused.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('quiz_not_started', $e->errorcode);
+        }
+        $this->assertSame([], quiz_session::get_answers(author_storage::get_record((int) $this->record->id)));
+    }
+
+    public function test_a_quiz_cannot_be_evaluated_before_the_clock_starts(): void {
+        $this->setUser($this->student);
+        $this->forbid_sends();
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('quiz_not_started', 'plagiarism_dixeo'));
+        verify_authorship::execute((int) $this->record->id, json_encode(['q1' => 'true', 'q2' => 'Mine']));
+    }
+
+    public function test_the_questions_are_not_served_before_the_clock_starts(): void {
+        $this->setUser($this->student);
+
+        $result = null;
+        try {
+            $result = get_verification_quiz::execute((int) $this->record->id);
+            $this->fail('The questions must not be served before the quiz starts.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('quiz_not_started', $e->errorcode);
+        }
+        $this->assertNull($result);
+
+        $stored = author_storage::get_record((int) $this->record->id);
+        $this->assertSame(0, quiz_session::load($stored)['started_at']);
+        $this->assertSame(author_storage::STATUS_VERIFICATION_REQUIRED, $stored->status);
+    }
+
+    public function test_the_student_cannot_go_back_to_an_earlier_question(): void {
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+        save_verification_progress::execute((int) $this->record->id, json_encode(['q1' => 'true']), '{}', 1);
+
+        $result = save_verification_progress::execute(
+            (int) $this->record->id,
+            json_encode(['q1' => 'false', 'q2' => 'Second']),
+            '{}',
+            0
+        );
+
+        $this->assertSame(1, $result['current_index']);
+        $stored = author_storage::get_record((int) $this->record->id);
+        $this->assertSame(['q1' => 'true', 'q2' => 'Second'], quiz_session::get_answers($stored));
+    }
+
+    public function test_an_index_past_the_last_question_is_ignored(): void {
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+
+        $result = save_verification_progress::execute((int) $this->record->id, '{}', '{}', 7);
+
+        $this->assertSame(0, $result['current_index']);
+    }
+
+    public function test_an_answer_after_the_question_time_limit_is_ignored(): void {
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+        $record = author_storage::get_record((int) $this->record->id);
+        $state = quiz_session::load($record);
+        $state['question_started_at']['q1'] = time() - quiz_session::QUESTION_TIME_TRUE_FALSE
+            - quiz_session::EXPIRY_GRACE_SECONDS - 1;
+        quiz_session::save($record, $state);
+
+        save_verification_progress::execute((int) $this->record->id, json_encode(['q1' => 'true']), '{}', 0);
+
+        $this->assertSame([], quiz_session::get_answers(author_storage::get_record((int) $this->record->id)));
+    }
+
+    public function test_a_finished_quiz_cannot_be_evaluated_again(): void {
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+        $this->mock_final_evaluation(80.0);
+        verify_authorship::execute((int) $this->record->id, json_encode(['q1' => 'true']));
+        $this->assertSame(80.0, (float) author_storage::get_record((int) $this->record->id)->final_confidence);
+
+        $this->forbid_sends();
+        try {
+            verify_authorship::execute((int) $this->record->id, json_encode(['q1' => 'false']));
+            $this->fail('A finished quiz must not be evaluated again.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('quiz_not_available', $e->errorcode);
+        }
+        $this->assertSame(80.0, (float) author_storage::get_record((int) $this->record->id)->final_confidence);
+    }
+
+    public function test_a_quiz_being_evaluated_elsewhere_is_refused(): void {
+        global $CFG;
+
+        // Locks taken in one process must exclude each other, which the database row factory guarantees.
+        $CFG->lock_factory = '\\core\\lock\\db_record_lock_factory';
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+        $this->forbid_sends();
+        $held = authorship::acquire_lock('authorship_' . (int) $this->record->id);
+        $this->assertNotNull($held);
+
+        try {
+            verify_authorship::execute((int) $this->record->id, json_encode(['q1' => 'true']));
+            $this->fail('A second evaluation of the same quiz must be refused.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('quiz_not_available', $e->errorcode);
+        } finally {
+            $held->release();
+        }
+    }
+
+    public function test_a_progress_write_from_a_stale_copy_keeps_a_finished_status(): void {
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+        $stale = author_storage::get_record((int) $this->record->id);
+        $this->complete_quiz();
+
+        quiz_session::record_progress($stale, ['q1' => 'true'], ['q1' => 4], 0);
+
+        $stored = author_storage::get_record((int) $this->record->id);
+        $this->assertSame(author_storage::STATUS_COMPLETE, $stored->status);
+        $this->assertSame(70.0, (float) $stored->final_confidence);
+    }
+
+    public function test_progress_is_not_saved_while_the_quiz_is_locked_elsewhere(): void {
+        $this->use_row_locks();
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+        $before = author_storage::get_record((int) $this->record->id);
+        $held = authorship::acquire_lock('authorship_' . (int) $this->record->id);
+        $this->assertNotNull($held);
+
+        try {
+            $result = save_verification_progress::execute(
+                (int) $this->record->id,
+                json_encode(['q1' => 'true']),
+                json_encode(['q1' => 4]),
+                1
+            );
+        } finally {
+            $held->release();
+        }
+
+        $this->assertFalse($result['saved']);
+        $after = author_storage::get_record((int) $this->record->id);
+        $this->assertSame($before->quiz_responses, $after->quiz_responses);
+        $this->assertSame($before->response_timings, $after->response_timings);
+        $this->assertSame($before->timemodified, $after->timemodified);
+    }
+
+    public function test_progress_is_refused_when_the_quiz_finishes_before_the_lock(): void {
+        $this->setUser($this->student);
+        start_verification::execute((int) $this->record->id);
+        $this->use_row_locks(fn() => $this->complete_quiz());
+
+        try {
+            save_verification_progress::execute((int) $this->record->id, json_encode(['q1' => 'true']), '{}', 1);
+            $this->fail('A quiz finished by another session must not take more answers.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('quiz_not_available', $e->errorcode);
+        }
+
+        $stored = author_storage::get_record((int) $this->record->id);
+        $this->assertSame(author_storage::STATUS_COMPLETE, $stored->status);
+        $this->assertSame([], quiz_session::get_answers($stored));
+    }
+
+    public function test_the_quiz_is_not_started_while_it_is_locked_elsewhere(): void {
+        $this->use_row_locks();
+        $this->setUser($this->student);
+        $held = authorship::acquire_lock('authorship_' . (int) $this->record->id);
+        $this->assertNotNull($held);
+
+        $sink = $this->redirectEvents();
+        try {
+            $result = start_verification::execute((int) $this->record->id);
+        } finally {
+            $held->release();
+        }
+        $events = $sink->get_events();
+
+        $this->assertSame(0, $result['started_at']);
+        $stored = author_storage::get_record((int) $this->record->id);
+        $this->assertSame(0, quiz_session::load($stored)['started_at']);
+        $this->assertSame(author_storage::STATUS_VERIFICATION_REQUIRED, $stored->status);
+        $started = array_filter($events, fn($event) => $event instanceof \plagiarism_dixeo\event\verification_started);
+        $this->assertCount(0, $started);
+    }
+
+    public function test_a_quiz_finished_before_the_start_lock_is_not_reopened(): void {
+        $this->setUser($this->student);
+        $this->use_row_locks(fn() => $this->complete_quiz());
+
+        $sink = $this->redirectEvents();
+        try {
+            start_verification::execute((int) $this->record->id);
+            $this->fail('A quiz finished by another session must not be started.');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('quiz_not_available', $e->errorcode);
+        }
+        $events = $sink->get_events();
+
+        $stored = author_storage::get_record((int) $this->record->id);
+        $this->assertSame(author_storage::STATUS_COMPLETE, $stored->status);
+        $this->assertSame(0, quiz_session::load($stored)['started_at']);
+        $started = array_filter($events, fn($event) => $event instanceof \plagiarism_dixeo\event\verification_started);
+        $this->assertCount(0, $started);
+    }
+
+    public function test_a_settled_result_is_returned_without_a_new_check(): void {
+        author_storage::update_record((int) $this->record->id, [
+            'status' => author_storage::STATUS_COMPLETE,
+            'final_confidence' => 35.0,
+        ]);
+        $this->setUser($this->student);
+        $this->forbid_sends();
+
+        $result = check_authorship::execute('mod_assign', 'submission', (int) $this->assign->cmid);
+
+        $this->assertSame('completed', $result['status']);
+        $this->assertSame(35.0, $result['score']);
+        $this->assertSame(0, $result['record_id']);
+        $this->assertSame(35.0, (float) author_storage::get_record((int) $this->record->id)->final_confidence);
+    }
+
+    public function test_a_check_already_running_for_the_submission_sends_nothing(): void {
+        global $CFG;
+
+        // Locks taken in one process must exclude each other, which the database row factory guarantees.
+        $CFG->lock_factory = '\\core\\lock\\db_record_lock_factory';
+        author_storage::update_record((int) $this->record->id, ['status' => author_storage::STATUS_FAILED]);
+        $this->setUser($this->student);
+        $this->forbid_sends();
+        $held = authorship::acquire_lock('authorship_submission_' . (int) $this->record->itemid);
+        $this->assertNotNull($held);
+
+        try {
+            $result = check_authorship::execute('mod_assign', 'submission', (int) $this->assign->cmid);
+        } finally {
+            $held->release();
+        }
+
+        $this->assertSame('failed', $result['status']);
+        $this->assertSame(get_string('assign_ux_result_missing', 'local_dixeo'), $result['errormessage']);
     }
 }

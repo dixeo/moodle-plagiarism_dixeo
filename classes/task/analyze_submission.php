@@ -164,6 +164,9 @@ class analyze_submission extends \core\task\adhoc_task {
     /**
      * Run the authorship check and store its result, including any verification quiz.
      *
+     * The decision and the write run under the per-submission lock shared with check_authorship,
+     * on a record read under that lock. While another request holds it, this step is skipped.
+     *
      * @param assign_ux_service $service Dixeo assign service.
      * @param \context_module $context Activity context.
      * @param \stdClass $submission Submission being analysed.
@@ -187,58 +190,68 @@ class analyze_submission extends \core\task\adhoc_task {
             return;
         }
 
-        $existing = author_storage::get_record_by_context($userid, self::COMPONENT, self::AREA, (int) $submission->id);
-        if ($existing && self::authorship_already_settled($existing)) {
-            mtrace("plagiarism_dixeo: authorship already recorded for submission {$submission->id}, skipping.");
+        $lock = authorship::acquire_lock('authorship_submission_' . (int) $submission->id);
+        if (!$lock) {
+            // The request that holds the lock stores the result; throwing would retry the whole task.
+            mtrace("plagiarism_dixeo: an authorship check for submission {$submission->id} is running, skipping.");
             return;
         }
+        try {
+            $existing = author_storage::get_record_by_context($userid, self::COMPONENT, self::AREA, (int) $submission->id);
+            if ($existing && authorship::is_settled($existing)) {
+                mtrace("plagiarism_dixeo: authorship already recorded for submission {$submission->id}, skipping.");
+                return;
+            }
 
-        $confidence = $this->run_authorship_step($service, $courseid, $cmid, $userid, assign_ux_service::MODE_CONFIDENCE);
-        $score = (float) $confidence['confidence'];
+            $confidence = $this->run_authorship_step($service, $courseid, $cmid, $userid, assign_ux_service::MODE_CONFIDENCE);
+            $score = (float) $confidence['confidence'];
 
-        $quizdata = null;
-        $config = \plagiarism_plugin_dixeo::get_activity_config($cmid);
-        $threshold = (float) $config['authorship_threshold'];
-        if (
-            \plagiarism_dixeo\feature_settings::verification_quiz_on($context)
-            && authorship::is_quiz_required($score, $threshold)
-        ) {
-            $counts = authorship::get_question_counts();
-            $quiz = $this->run_authorship_step(
-                $service,
-                $courseid,
-                $cmid,
-                $userid,
-                assign_ux_service::MODE_QUIZ,
-                [
-                    'initialConfidence' => $score,
-                    'trueFalseCount' => $counts['true_false'],
-                    'multipleChoiceCount' => $counts['multiple_choice'],
-                    'openCount' => $counts['open'],
-                ]
-            );
-            $quizdata = ['questions' => $quiz['questions']];
+            $quizdata = null;
+            $config = \plagiarism_plugin_dixeo::get_activity_config($cmid);
+            $threshold = (float) $config['authorship_threshold'];
+            if (
+                \plagiarism_dixeo\feature_settings::verification_quiz_on($context)
+                && authorship::is_quiz_required($score, $threshold)
+            ) {
+                $counts = authorship::get_question_counts();
+                $quiz = $this->run_authorship_step(
+                    $service,
+                    $courseid,
+                    $cmid,
+                    $userid,
+                    assign_ux_service::MODE_QUIZ,
+                    [
+                        'initialConfidence' => $score,
+                        'trueFalseCount' => $counts['true_false'],
+                        'multipleChoiceCount' => $counts['multiple_choice'],
+                        'openCount' => $counts['open'],
+                    ]
+                );
+                $quizdata = ['questions' => $quiz['questions']];
+            }
+
+            $transaction = $DB->start_delegated_transaction();
+            $record = author_storage::create_record($userid, self::COMPONENT, self::AREA, (int) $submission->id, [
+                'initial_confidence' => $score,
+                'initial_explanation' => (string) ($confidence['explanation'] ?? ''),
+                'quiz_data' => $quizdata,
+                'source_timemodified' => (int) $submission->timemodified,
+                'source_attempt' => (int) $submission->attemptnumber,
+            ]);
+            if (!$record) {
+                throw new \moodle_exception('automation_authorship_failed', 'plagiarism_dixeo');
+            }
+            $transaction->allow_commit();
+
+            authorship_checked::create([
+                'context' => $context,
+                'objectid' => (int) $record->id,
+                'relateduserid' => $userid,
+                'other' => ['status' => $record->status],
+            ])->trigger();
+        } finally {
+            $lock->release();
         }
-
-        $transaction = $DB->start_delegated_transaction();
-        $record = author_storage::create_record($userid, self::COMPONENT, self::AREA, (int) $submission->id, [
-            'initial_confidence' => $score,
-            'initial_explanation' => (string) ($confidence['explanation'] ?? ''),
-            'quiz_data' => $quizdata,
-            'source_timemodified' => (int) $submission->timemodified,
-            'source_attempt' => (int) $submission->attemptnumber,
-        ]);
-        if (!$record) {
-            throw new \moodle_exception('automation_authorship_failed', 'plagiarism_dixeo');
-        }
-        $transaction->allow_commit();
-
-        authorship_checked::create([
-            'context' => $context,
-            'objectid' => (int) $record->id,
-            'relateduserid' => $userid,
-            'other' => ['status' => $record->status],
-        ])->trigger();
     }
 
     /**
@@ -272,16 +285,5 @@ class analyze_submission extends \core\task\adhoc_task {
         }
 
         return $mapped;
-    }
-
-    /**
-     * Whether the student already has a quiz or a final score for this submission.
-     *
-     * @param \stdClass $record Authorship row.
-     * @return bool
-     */
-    private static function authorship_already_settled(\stdClass $record): bool {
-        $status = (string) ($record->status ?? '');
-        return !in_array($status, [author_storage::STATUS_PENDING, author_storage::STATUS_FAILED], true);
     }
 }

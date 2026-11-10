@@ -29,6 +29,7 @@ use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
 use plagiarism_dixeo\authorship\author_storage;
+use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\authorship\quiz_session;
 use plagiarism_dixeo\event\verification_started;
 
@@ -36,7 +37,9 @@ use plagiarism_dixeo\event\verification_started;
  * Starts the server-side clock for a verification quiz.
  *
  * Calling this again for a quiz already under way resumes it rather than restarting it, so
- * a student who reloads the page does not get their time back.
+ * a student who reloads the page does not get their time back. The start runs under the same
+ * per-record lock as saving and evaluating; while another request holds it, the current timing
+ * is returned and nothing is written.
  */
 class start_verification extends external_api {
     /**
@@ -58,25 +61,42 @@ class start_verification extends external_api {
      * @throws \moodle_exception
      */
     public static function execute(int $recordid): array {
+        global $DB;
+
         $params = self::validate_parameters(self::execute_parameters(), ['record_id' => $recordid]);
 
         $record = verification_access::require_own_open_quiz($params['record_id']);
         $context = assign_access::require_student_authorship_from_record($record);
 
-        [$state, $juststarted] = quiz_session::start($record);
-
-        if ($juststarted) {
-            author_storage::update_record((int) $record->id, [
-                'status' => author_storage::STATUS_VERIFICATION_IN_PROGRESS,
-            ]);
-            verification_started::create([
-                'context' => $context,
-                'objectid' => (int) $record->id,
-                'relateduserid' => (int) $record->userid,
-            ])->trigger();
+        $lock = authorship::acquire_lock('authorship_' . (int) $record->id);
+        if (!$lock) {
+            // A save or an evaluation is running in another session: report, write nothing.
+            $fresh = verification_access::require_own_open_quiz((int) $record->id);
+            return verification_access::timing_payload(quiz_session::load($fresh), $fresh);
         }
+        try {
+            $fresh = verification_access::require_own_open_quiz((int) $record->id);
+            [$state, $juststarted] = quiz_session::start($fresh);
 
-        return verification_access::timing_payload($state, $record);
+            if ($juststarted) {
+                $DB->set_field_select(
+                    author_storage::TABLE,
+                    'status',
+                    author_storage::STATUS_VERIFICATION_IN_PROGRESS,
+                    'id = :id AND status = :required',
+                    ['id' => (int) $fresh->id, 'required' => author_storage::STATUS_VERIFICATION_REQUIRED]
+                );
+                verification_started::create([
+                    'context' => $context,
+                    'objectid' => (int) $fresh->id,
+                    'relateduserid' => (int) $fresh->userid,
+                ])->trigger();
+            }
+
+            return verification_access::timing_payload($state, $fresh);
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

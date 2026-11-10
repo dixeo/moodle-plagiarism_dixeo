@@ -129,6 +129,7 @@ $string['question_locked'] = 'Question locked';
 $string['question_locked_tooltip'] = 'This question cannot be edited';
 $string['quiz_expired'] = 'Time is up. Your answers so far have been submitted.';
 $string['quiz_not_available'] = 'This verification quiz is not available.';
+$string['quiz_not_started'] = 'The verification quiz has not been started. Start it before answering.';
 $string['quiz_payload_invalid'] = 'The verification quiz sent unreadable data ({$a}). Please reload the page and try again.';
 $string['quiz_payload_too_large'] = 'The verification quiz sent too much data ({$a}). Please shorten your answer.';
 $string['quiz_time_remaining'] = 'Time remaining: {$a}';

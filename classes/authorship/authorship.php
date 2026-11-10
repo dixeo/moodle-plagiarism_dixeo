@@ -26,7 +26,7 @@ namespace plagiarism_dixeo\authorship;
 
 
 /**
- * Plugin config gates, quiz form rendering, and objective grade helpers.
+ * Plugin config gates, record state, locking and objective grade helpers.
  */
 class authorship {
     /** Confidence scale: minimum (0 = AI-generated). */
@@ -145,108 +145,27 @@ class authorship {
     }
 
     /**
-     * Load the open quiz for a submission, if the student still has one to sit.
+     * Whether the student already has a quiz or a final score for this submission.
      *
-     * @param int $userid Student user id.
-     * @param int $itemid Assign submission id.
-     * @return \stdClass|null Authorship record, or null when a new check is required.
+     * A settled record is never replaced by a new check: only a pending or failed one is.
+     *
+     * @param \stdClass $record Authorship row.
+     * @return bool
      */
-    public static function find_resumable_record(int $userid, int $itemid): ?\stdClass {
-        if ($userid <= 0 || $itemid <= 0) {
-            return null;
-        }
-
-        $record = author_storage::get_record_by_context($userid, 'mod_assign', 'submission', $itemid);
-
-        return self::is_resumable_record($record) ? $record : null;
+    public static function is_settled(\stdClass $record): bool {
+        $status = (string) ($record->status ?? '');
+        return !in_array($status, [author_storage::STATUS_PENDING, author_storage::STATUS_FAILED], true);
     }
 
     /**
-     * Render the quiz as an HTML form.
+     * Take a lock that serialises work on one authorship record or submission, without waiting.
      *
-     * @param object|array $recordorquizdata DB record (with quiz_data) or decoded quiz array.
-     * @param array $options form_action_url, submit_label, record_id, css_class.
-     * @return string HTML fragment.
+     * @param string $key Lock key.
+     * @return \core\lock\lock|null The lock, or null when another request holds it.
      */
-    public static function render_quiz_form($recordorquizdata, array $options = []): string {
-        $recordid = $options['record_id'] ?? null;
-        $action = $options['form_action_url'] ?? '';
-        $submitlabel = $options['submit_label'] ?? get_string('authorship_submit_quiz', 'plagiarism_dixeo');
-        $cssclass = $options['css_class'] ?? 'plagiarism-dixeo-authorship-quiz';
-
-        if (is_object($recordorquizdata) && isset($recordorquizdata->quiz_data)) {
-            $quiz = is_string($recordorquizdata->quiz_data)
-                ? json_decode($recordorquizdata->quiz_data, true)
-                : $recordorquizdata->quiz_data;
-            if ($recordid === null && isset($recordorquizdata->id)) {
-                $recordid = (int) $recordorquizdata->id;
-            }
-        } else {
-            $quiz = is_array($recordorquizdata) ? $recordorquizdata : ['questions' => []];
-        }
-
-        $questions = $quiz['questions'] ?? [];
-        $html = [];
-        $html[] = '<form class="' . s($cssclass) . '" method="post" action="' . s($action)
-            . '" data-authorship-record-id="' . (int) $recordid . '">';
-        $html[] = '<input type="hidden" name="authorship_record_id" value="' . (int) $recordid . '" />';
-
-        foreach ($questions as $index => $q) {
-            $html[] = self::render_quiz_question($q, $index);
-        }
-
-        $html[] = '<div class="authorship-quiz-actions"><button type="submit" class="btn btn-primary">'
-            . s($submitlabel) . '</button></div>';
-        $html[] = '</form>';
-        return implode("\n", $html);
-    }
-
-    /**
-     * Render a single quiz question (true/false, multiple_choice, open).
-     *
-     * @param array $question Must contain type, text; for multiple_choice, options array.
-     * @param int $index Question index for name/id.
-     * @return string HTML fragment.
-     */
-    private static function render_quiz_question(array $question, int $index): string {
-        $type = $question['type'] ?? self::QUESTION_TYPE_OPEN;
-        $text = $question['text'] ?? '';
-        $id = $question['id'] ?? ('q' . $index);
-        $name = 'authorship_q[' . s($id) . ']';
-        $out = [];
-
-        $out[] = '<div class="authorship-question authorship-question-' . s($type)
-            . '" data-question-id="' . s($id) . '">';
-        $out[] = '<label class="authorship-question-text">' . s($text) . '</label>';
-
-        switch ($type) {
-            case self::QUESTION_TYPE_TRUE_FALSE:
-                $out[] = '<div class="authorship-options">';
-                $out[] = '<label><input type="radio" name="' . $name . '" value="1" /> '
-                    . get_string('true', 'plagiarism_dixeo') . '</label>';
-                $out[] = '<label><input type="radio" name="' . $name . '" value="0" /> '
-                    . get_string('false', 'plagiarism_dixeo') . '</label>';
-                $out[] = '</div>';
-                break;
-            case self::QUESTION_TYPE_MULTIPLE_CHOICE:
-                $opts = $question['options'] ?? [];
-                $out[] = '<div class="authorship-options">';
-                foreach ($opts as $optindex => $opt) {
-                    $optval = is_array($opt) ? ($opt['value'] ?? $opt['text'] ?? $optindex) : $opt;
-                    $opttext = is_array($opt) ? ($opt['text'] ?? (string) $optval) : (string) $opt;
-                    $out[] = '<label><input type="radio" name="' . $name . '" value="' . s($optval) . '" /> '
-                        . s($opttext) . '</label>';
-                }
-                $out[] = '</div>';
-                break;
-            case self::QUESTION_TYPE_OPEN:
-            default:
-                $out[] = '<textarea name="' . $name . '" rows="4" class="form-control"></textarea>';
-                break;
-        }
-
-        $out[] = '</div>';
-        return implode("\n", $out);
+    public static function acquire_lock(string $key): ?\core\lock\lock {
+        $lock = \core\lock\lock_config::get_lock_factory('plagiarism_dixeo')->get_lock($key, 0);
+        return $lock ?: null;
     }
 
     /**

@@ -129,6 +129,7 @@ $string['question_locked'] = 'Frage gesperrt';
 $string['question_locked_tooltip'] = 'Diese Frage kann nicht mehr bearbeitet werden';
 $string['quiz_expired'] = 'Die Zeit ist abgelaufen. Ihre bisherigen Antworten wurden übermittelt.';
 $string['quiz_not_available'] = 'Dieses Verifizierungsquiz ist nicht verfügbar.';
+$string['quiz_not_started'] = 'Der Verifizierungstest wurde noch nicht gestartet. Starten Sie ihn, bevor Sie antworten.';
 $string['quiz_payload_invalid'] = 'Das Verifizierungsquiz hat unlesbare Daten gesendet ({$a}). Bitte laden Sie die Seite neu und versuchen Sie es erneut.';
 $string['quiz_payload_too_large'] = 'Das Verifizierungsquiz hat zu viele Daten gesendet ({$a}). Bitte kürzen Sie Ihre Antwort.';
 $string['quiz_time_remaining'] = 'Verbleibende Zeit: {$a}';

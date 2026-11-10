@@ -209,9 +209,10 @@ final class external_safe_errors_test extends \advanced_testcase {
             'submission',
             (int) $submissionid,
             40.0,
-            ['questions' => []]
+            ['questions' => [['id' => 'q0', 'type' => 'open', 'text' => 'Why?']]]
         );
         $this->assertNotNull($record);
+        \plagiarism_dixeo\authorship\quiz_session::start($record);
 
         $this->getDataGenerator()->get_plugin_generator('local_dixeo')
             ->create_terms_acceptance(['userid' => (int) $student->id]);

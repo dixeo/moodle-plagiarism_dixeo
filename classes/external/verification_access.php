@@ -63,6 +63,22 @@ class verification_access {
     }
 
     /**
+     * Refuse while the server clock of a quiz has not started.
+     *
+     * start_verification is the only endpoint that starts the clock, so no question text or
+     * saved answer is read or written before the student has started the quiz.
+     *
+     * @param array $state Timing state from quiz_session::load().
+     * @return void
+     * @throws \moodle_exception quiz_not_started while the server clock has not started.
+     */
+    public static function require_started(array $state): void {
+        if ((int) $state['started_at'] <= 0) {
+            throw new \moodle_exception('quiz_not_started', 'plagiarism_dixeo');
+        }
+    }
+
+    /**
      * Build the timing fields every verification endpoint returns.
      *
      * @param array $state Timing state from quiz_session::load().

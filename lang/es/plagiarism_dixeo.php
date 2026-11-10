@@ -129,6 +129,7 @@ $string['question_locked'] = 'Pregunta bloqueada';
 $string['question_locked_tooltip'] = 'Esta pregunta no se puede editar';
 $string['quiz_expired'] = 'Se ha agotado el tiempo. Se han enviado las respuestas hasta ahora.';
 $string['quiz_not_available'] = 'Este cuestionario de verificación no está disponible.';
+$string['quiz_not_started'] = 'La prueba de verificación no se ha iniciado. Iníciela antes de responder.';
 $string['quiz_payload_invalid'] = 'El cuestionario de verificación ha enviado datos ilegibles ({$a}). Recargue la página e inténtelo de nuevo.';
 $string['quiz_payload_too_large'] = 'El cuestionario de verificación ha enviado demasiados datos ({$a}). Acorte su respuesta.';
 $string['quiz_time_remaining'] = 'Tiempo restante: {$a}';

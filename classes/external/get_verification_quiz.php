@@ -34,7 +34,8 @@ use plagiarism_dixeo\authorship\quiz_session;
  * Returns the questions a student has to answer, along with how far they have got.
  *
  * Correct answers are stripped before the questions leave the server, so the quiz cannot be
- * completed by reading the response.
+ * completed by reading the response. Nothing is returned before start_verification has started
+ * the clock.
  */
 class get_verification_quiz extends external_api {
     /**
@@ -53,7 +54,7 @@ class get_verification_quiz extends external_api {
      *
      * @param int $recordid Authorship record id.
      * @return array
-     * @throws \moodle_exception
+     * @throws \moodle_exception quiz_not_started before the clock runs, quiz_not_available once the quiz is finished.
      */
     public static function execute(int $recordid): array {
         $params = self::validate_parameters(self::execute_parameters(), ['record_id' => $recordid]);
@@ -62,6 +63,7 @@ class get_verification_quiz extends external_api {
         assign_access::require_student_authorship_from_record($record);
 
         $state = quiz_session::load($record);
+        verification_access::require_started($state);
 
         return verification_access::timing_payload($state, $record) + [
             'record_id' => (int) $record->id,

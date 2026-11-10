@@ -29,11 +29,17 @@ use local_dixeo\dto\operation_result;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_ux_service;
 use plagiarism_dixeo\authorship\author_storage;
+use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\automation\analysis_gate;
 use plagiarism_dixeo\feedback\grade_feedback_storage;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
 use plagiarism_dixeo\task\analyze_submission;
 use plagiarism_dixeo\task\stage_draft_grade;
+
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/plagiarism/dixeo/tests/fixtures/race_lock_factory.php');
 
 /**
  * Automatic analysis stays off unless every switch is on, and the observer only queues work.
@@ -86,8 +92,59 @@ final class automation_test extends \advanced_testcase {
     }
 
     protected function tearDown(): void {
+        \plagiarism_dixeo\tests\race_lock_factory::before_lock(null, null);
         service_factory::reset();
         parent::tearDown();
+    }
+
+    /**
+     * Create an authorship record whose check has not settled yet, so the task would run it.
+     *
+     * @return \stdClass
+     */
+    private function create_pending_record(): \stdClass {
+        set_config('authorship_enabled', 1, 'plagiarism_dixeo');
+        $record = author_storage::create_record(
+            (int) $this->student->id,
+            'mod_assign',
+            'submission',
+            $this->submissionid,
+            ['initial_confidence' => 20.0]
+        );
+        $this->assertNotNull($record);
+        author_storage::update_record((int) $record->id, ['status' => author_storage::STATUS_PENDING]);
+        return author_storage::get_record((int) $record->id);
+    }
+
+    /**
+     * Run the task's authorship step for the test submission with a service that must send nothing.
+     */
+    private function store_authorship_without_sends(): void {
+        $service = $this->getMockBuilder(assign_ux_service::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $service->expects($this->never())->method('submit_authorship_and_wait');
+
+        $method = new \ReflectionMethod(analyze_submission::class, 'store_authorship');
+        $method->setAccessible(true);
+        ob_start();
+        try {
+            $method->invoke(
+                new analyze_submission(),
+                $service,
+                \context_module::instance((int) $this->assign->cmid),
+                (object) [
+                    'id' => $this->submissionid,
+                    'timemodified' => time(),
+                    'attemptnumber' => 0,
+                ],
+                (int) $this->course->id,
+                (int) $this->assign->cmid,
+                (int) $this->student->id
+            );
+        } finally {
+            ob_end_clean();
+        }
     }
 
     /**
@@ -356,6 +413,48 @@ final class automation_test extends \advanced_testcase {
         );
         $this->assertNotNull($stored);
         $this->assertSame((int) $created->id, (int) $stored->id);
+        $this->assertSame(author_storage::STATUS_COMPLETE, $stored->status);
+        $this->assertEqualsWithDelta(15.0, (float) $stored->final_confidence, 0.01);
+    }
+
+    public function test_the_task_sends_nothing_while_a_check_of_the_submission_is_running(): void {
+        global $CFG;
+
+        // Locks taken in one process must exclude each other, which the database row factory guarantees.
+        $CFG->lock_factory = '\\core\\lock\\db_record_lock_factory';
+        $pending = $this->create_pending_record();
+        $held = authorship::acquire_lock('authorship_submission_' . $this->submissionid);
+        $this->assertNotNull($held);
+
+        try {
+            $this->store_authorship_without_sends();
+        } finally {
+            $held->release();
+        }
+
+        $stored = author_storage::get_record((int) $pending->id);
+        $this->assertNotNull($stored);
+        $this->assertSame(author_storage::STATUS_PENDING, $stored->status);
+        $this->assertSame($pending->timemodified, $stored->timemodified);
+    }
+
+    public function test_the_task_decides_on_the_record_read_under_the_submission_lock(): void {
+        global $CFG;
+
+        $pending = $this->create_pending_record();
+        $CFG->lock_factory = '\\' . \plagiarism_dixeo\tests\race_lock_factory::class;
+        \plagiarism_dixeo\tests\race_lock_factory::before_lock(
+            'authorship_submission_' . $this->submissionid,
+            fn() => author_storage::update_record((int) $pending->id, [
+                'status' => author_storage::STATUS_COMPLETE,
+                'final_confidence' => 15.0,
+            ])
+        );
+
+        $this->store_authorship_without_sends();
+
+        $stored = author_storage::get_record((int) $pending->id);
+        $this->assertNotNull($stored);
         $this->assertSame(author_storage::STATUS_COMPLETE, $stored->status);
         $this->assertEqualsWithDelta(15.0, (float) $stored->final_confidence, 0.01);
     }

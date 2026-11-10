@@ -167,6 +167,9 @@ class quiz_session {
     /**
      * Start the clock, or return the state of a quiz already under way.
      *
+     * Caller holds the authorship_<id> lock and passes a record re-read under it. The status is
+     * left to the caller.
+     *
      * @param \stdClass $record Authorship record.
      * @return array{0: array, 1: bool} The state and whether this call started the quiz.
      */
@@ -190,12 +193,14 @@ class quiz_session {
     /**
      * Store the timing state against a record.
      *
+     * Caller holds the authorship_<id> lock and passes a record re-read under it. Only the timing
+     * state is written, so the stored status is never replaced from the caller's copy.
+     *
      * @param \stdClass $record Authorship record.
      * @param array $state State to store.
      */
     public static function save(\stdClass $record, array $state): void {
         author_storage::update_record((int) $record->id, [
-            'status' => $record->status,
             'response_timings' => $state,
         ]);
         $record->response_timings = json_encode($state);
@@ -356,7 +361,54 @@ class quiz_session {
     }
 
     /**
+     * Keep only the answers the student may still give.
+     *
+     * When backwards navigation is off, answers to questions before the one the student had
+     * reached are dropped. An answer to a question whose own time limit, plus the grace
+     * period, has passed since the student first reached it is dropped too.
+     *
+     * @param \stdClass $record Authorship record.
+     * @param array $state State from load(), before this request moves the student on.
+     * @param array $answers Answers checked by validate_answers(), keyed by question id.
+     * @return array Answers that still count, keyed by question id.
+     */
+    public static function accepted_answers(\stdClass $record, array $state, array $answers): array {
+        $questions = self::get_public_questions($record);
+        $positions = [];
+        foreach ($questions as $index => $question) {
+            $positions[(string) $question['id']] = ['index' => $index, 'limit' => (int) $question['timelimit']];
+        }
+
+        $reached = (int) $state['current_index'];
+        $now = time();
+        $accepted = [];
+        foreach ($answers as $questionid => $answer) {
+            $position = $positions[(string) $questionid] ?? null;
+            if ($position === null) {
+                continue;
+            }
+            if (!self::allows_backwards_navigation() && $position['index'] < $reached) {
+                continue;
+            }
+            $started = (int) ($state['question_started_at'][(string) $questionid] ?? 0);
+            if ($started > 0 && $position['limit'] > 0 && $now > $started + $position['limit'] + self::EXPIRY_GRACE_SECONDS) {
+                continue;
+            }
+            $accepted[(string) $questionid] = $answer;
+        }
+
+        return $accepted;
+    }
+
+    /**
      * Merge newly submitted answers and reported times into what is already saved.
+     *
+     * When backwards navigation is off, the reported question is accepted only when it is not
+     * before the one already reached and exists in the quiz. Answers are filtered by
+     * {@see self::accepted_answers()} against the position before this request.
+     *
+     * Caller holds the authorship_<id> lock and passes a record re-read under it. Only the answers
+     * and the timing state are written, so the stored status is never replaced from the caller's copy.
      *
      * @param \stdClass $record Authorship record.
      * @param array $answers Accepted answers, keyed by question id.
@@ -371,22 +423,21 @@ class quiz_session {
         ?int $currentindex = null
     ): array {
         $state = self::load($record);
+        $answers = self::accepted_answers($record, $state, $answers);
         $state['reported'] = array_merge($state['reported'], $timings);
-        if ($currentindex !== null) {
-            $state['current_index'] = max(0, $currentindex);
+        if ($currentindex !== null && self::accepts_index($record, $state, $currentindex)) {
+            $state['current_index'] = $currentindex;
         }
         $state = self::ensure_question_started($record, $state, (int) $state['current_index']);
 
         $merged = array_merge(self::get_answers($record), $answers);
 
         author_storage::update_record((int) $record->id, [
-            'status' => author_storage::STATUS_VERIFICATION_IN_PROGRESS,
             'quiz_responses' => $merged,
             'response_timings' => $state,
         ]);
         $record->quiz_responses = json_encode($merged);
         $record->response_timings = json_encode($state);
-        $record->status = author_storage::STATUS_VERIFICATION_IN_PROGRESS;
 
         return $state;
     }
@@ -435,6 +486,21 @@ class quiz_session {
      */
     public static function get_next_button_delay(): int {
         return 0;
+    }
+
+    /**
+     * Whether the student may move to the reported question.
+     *
+     * @param \stdClass $record Authorship record.
+     * @param array $state State from load().
+     * @param int $index Reported question index.
+     * @return bool
+     */
+    private static function accepts_index(\stdClass $record, array $state, int $index): bool {
+        if ($index < 0 || $index >= count(self::get_question_ids($record))) {
+            return false;
+        }
+        return self::allows_backwards_navigation() || $index >= (int) $state['current_index'];
     }
 
     /**

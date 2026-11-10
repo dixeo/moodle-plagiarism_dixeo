@@ -40,7 +40,7 @@ require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
  * An in-progress verification must come back as the same record, without a new API job.
  *
  * @covers \plagiarism_dixeo\external\check_authorship
- * @covers \plagiarism_dixeo\authorship\authorship::find_resumable_record
+ * @covers \plagiarism_dixeo\authorship\authorship::is_resumable_record
  */
 final class check_authorship_resume_test extends \advanced_testcase {
     protected function tearDown(): void {
@@ -128,8 +128,8 @@ final class check_authorship_resume_test extends \advanced_testcase {
         $this->assertSame((int) $seed['record']->id, $result['record_id']);
         $this->assertSame(42.0, $result['score']);
         $this->assertSame('completed', $result['status']);
-        $this->assertStringContainsString('authorship_record_id', $result['quiz_html']);
-        $this->assertStringContainsString('Resume?', $result['quiz_html']);
+        $this->assertArrayNotHasKey('quiz_html', $result);
+        $this->assertStringNotContainsString('Resume?', json_encode($result));
 
         $stored = author_storage::get_record((int) $seed['record']->id);
         $this->assertNotNull($stored);
@@ -148,6 +148,6 @@ final class check_authorship_resume_test extends \advanced_testcase {
         $result = check_authorship::execute('mod_assign', 'submission', (int) $seed['assign']->cmid);
 
         $this->assertSame((int) $seed['record']->id, $result['record_id']);
-        $this->assertStringContainsString('Resume?', $result['quiz_html']);
+        $this->assertStringNotContainsString('Resume?', json_encode($result));
     }
 }
