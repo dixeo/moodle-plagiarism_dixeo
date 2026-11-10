@@ -29,6 +29,7 @@ use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
 use local_dixeo\exception\consent_required_exception;
+use local_dixeo\exception\job_quota_exceeded_exception;
 use local_dixeo\external\response_factory;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_submission_reader;
@@ -43,8 +44,10 @@ use plagiarism_dixeo\event\authorship_checked;
  * Authorship confidence (+ optional quiz) via Dixeo_API jobs.
  *
  * Questions are never returned here: the client starts the quiz clock with start_verification
- * and reads the questions from get_verification_quiz. A settled result is returned as stored,
- * and concurrent checks of one submission are serialised by a lock.
+ * and reads the questions from get_verification_quiz. Concurrent checks of one submission are
+ * serialised by a lock, and the stored record is read only under it: a settled result is
+ * returned as stored, an open quiz is resumed, and only otherwise are new jobs sent, within the
+ * student's job quota for the assignment.
  */
 class check_authorship extends external_api {
     /**
@@ -98,43 +101,45 @@ class check_authorship extends external_api {
             $submissiondata = $reader->get_submission_data((int) $cm->id, (int) $USER->id, $courseid);
             $itemid = isset($submissiondata['submission']->id) ? (int) $submissiondata['submission']->id : 0;
 
-            $existing = $itemid > 0
-                ? author_storage::get_record_by_context((int) $USER->id, 'mod_assign', 'submission', $itemid)
-                : null;
-            if (authorship::is_resumable_record($existing)) {
-                return self::result_payload(
-                    (float) ($existing->initial_confidence ?? 50.0),
-                    (int) $existing->id,
-                    '',
-                    'completed',
-                    $courseid
-                );
-            }
-            // A finished result is final for this submission: it is returned, never re-run.
-            if ($existing && authorship::is_settled($existing)) {
-                return self::result_payload(
-                    (float) ($existing->final_confidence ?? $existing->initial_confidence ?? 50.0),
-                    0,
-                    '',
-                    'completed',
-                    $courseid,
-                    '',
-                    (float) \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id)['authorship_threshold']
-                );
-            }
-
             $lock = authorship::acquire_lock('authorship_submission_' . $itemid);
             if (!$lock) {
                 $msg = get_string('assign_ux_result_missing', 'local_dixeo');
                 return self::result_payload(50.0, 0, $msg, 'failed', $courseid);
             }
             try {
+                $existing = $itemid > 0
+                    ? author_storage::get_record_by_context((int) $USER->id, 'mod_assign', 'submission', $itemid)
+                    : null;
+                if (authorship::is_resumable_record($existing)) {
+                    return self::result_payload(
+                        (float) ($existing->initial_confidence ?? 50.0),
+                        (int) $existing->id,
+                        '',
+                        'completed',
+                        $courseid
+                    );
+                }
+                // A finished result is final for this submission: it is returned, never re-run.
+                if ($existing && authorship::is_settled($existing)) {
+                    return self::result_payload(
+                        (float) ($existing->final_confidence ?? $existing->initial_confidence ?? 50.0),
+                        0,
+                        '',
+                        'completed',
+                        $courseid,
+                        '',
+                        (float) \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id)['authorship_threshold']
+                    );
+                }
+
                 return self::run_check($service, $cm, $courseid, $itemid);
             } finally {
                 $lock->release();
             }
         } catch (\required_capability_exception | \require_login_exception | consent_required_exception $e) {
             throw $e;
+        } catch (job_quota_exceeded_exception $e) {
+            return self::result_payload(50.0, 0, $e->getMessage(), 'failed', $courseid);
         } catch (\Throwable $e) {
             $safe = response_factory::safe_message($e);
             return self::result_payload(50.0, 0, $safe, 'failed', $courseid);
@@ -144,20 +149,27 @@ class check_authorship extends external_api {
     /**
      * Run the confidence step, and the quiz step when required, then store the result.
      *
+     * Caller holds the authorship_submission_<itemid> lock. When the quiz is on, the confidence
+     * step reserves room in the job quota for the quiz step, so a student is not charged for a
+     * confidence job whose quiz would then be refused.
+     *
      * @param assign_ux_service $service Dixeo assign service.
      * @param \stdClass $cm Assignment course module.
      * @param int $courseid Course id.
      * @param int $itemid Submission id, or 0 when there is none to store against.
      * @return array
+     * @throws job_quota_exceeded_exception When the student's job quota for the assignment is used up.
      */
     private static function run_check(assign_ux_service $service, \stdClass $cm, int $courseid, int $itemid): array {
         global $USER;
 
+        $quizon = \plagiarism_dixeo\feature_settings::verification_quiz_on(\context_module::instance((int) $cm->id));
         $confidenceop = $service->submit_authorship_and_wait(
             $courseid,
             (int) $cm->id,
             (int) $USER->id,
-            assign_ux_service::MODE_CONFIDENCE
+            assign_ux_service::MODE_CONFIDENCE,
+            quota: assign_access::student_job_quota($quizon ? 2 : 1)
         );
         if (!$confidenceop->completed) {
             $msg = get_string('assign_ux_result_missing', 'local_dixeo');
@@ -175,10 +187,7 @@ class check_authorship extends external_api {
         $lastjobid = $confidenceop->jobid;
 
         $activity = \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id);
-        if (
-            \plagiarism_dixeo\feature_settings::verification_quiz_on(\context_module::instance((int) $cm->id))
-            && authorship::is_quiz_required($score, (float) $activity['authorship_threshold'])
-        ) {
+        if ($quizon && authorship::is_quiz_required($score, (float) $activity['authorship_threshold'])) {
             $counts = authorship::get_question_counts();
             $quizop = $service->submit_authorship_and_wait(
                 $courseid,
@@ -190,7 +199,8 @@ class check_authorship extends external_api {
                     'multipleChoiceCount' => $counts['multiple_choice'],
                     'openCount' => $counts['open'],
                     'initialConfidence' => $score,
-                ]
+                ],
+                quota: assign_access::student_job_quota()
             );
             if (!$quizop->completed) {
                 $msg = get_string('assign_ux_result_missing', 'local_dixeo');

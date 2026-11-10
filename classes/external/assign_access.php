@@ -32,6 +32,22 @@ use core_external\external_api;
  * Shared access helpers for assign Analyze / authorship web services.
  */
 final class assign_access {
+    /** @var int Dixeo jobs a student may start on one assignment within an hour, background work included. */
+    public const STUDENT_JOBS_PER_HOUR = 10;
+
+    /**
+     * Job quota for a student's sends on one assignment: STUDENT_JOBS_PER_HOUR in a sliding hour.
+     *
+     * local_dixeo enforces it atomically per student, assignment and component around the count
+     * and the send, and refuses with job_quota_exceeded_exception.
+     *
+     * @param int $jobsneeded Jobs the calling flow will start.
+     * @return \local_dixeo\dto\job_quota
+     */
+    public static function student_job_quota(int $jobsneeded = 1): \local_dixeo\dto\job_quota {
+        return new \local_dixeo\dto\job_quota(self::STUDENT_JOBS_PER_HOUR, HOURSECS, $jobsneeded);
+    }
+
     /**
      * Validate module context and require student Analyze capabilities.
      *

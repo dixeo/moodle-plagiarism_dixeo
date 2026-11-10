@@ -35,6 +35,7 @@ use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_submission_reader;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
+use plagiarism_dixeo\feedback\review_feedback;
 
 
 /**
@@ -225,14 +226,8 @@ class get_assign_job_status extends external_api {
         if (isset($mapped['error'])) {
             return self::failed_payload($jobid, $courseid, self::FLOW_REVIEW, $mapped['error']);
         }
-        $clean = format_text($mapped['feedback_html'] ?? '', FORMAT_HTML, [
-            'para' => true,
-            'filter' => false,
-            'context' => $modcontext,
-        ]);
+        $html = review_feedback::html((string) ($mapped['feedback_html'] ?? ''), $modcontext);
         self::store_review_feedback($cmid, $userid, (string) ($mapped['feedback_html'] ?? ''), (int) $status->createdat);
-        $classes = 'alert alert-info alert-block fade in alert-dismissible plagiarism-dixeo-review-feedback';
-        $html = '<div class="' . $classes . '" role="alert">' . $clean . '</div>';
         return [
             'jobid' => $jobid,
             'status' => 'completed',

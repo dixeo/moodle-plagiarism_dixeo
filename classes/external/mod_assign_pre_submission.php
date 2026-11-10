@@ -29,14 +29,20 @@ use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
 use local_dixeo\exception\consent_required_exception;
+use local_dixeo\exception\job_quota_exceeded_exception;
 use local_dixeo\external\response_factory;
 use local_dixeo\external\service_factory;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 use plagiarism_dixeo\event\analysis_requested;
+use plagiarism_dixeo\feedback\presubmission_feedback_storage;
+use plagiarism_dixeo\feedback\review_feedback;
 
 
 /**
  * Submits an assign review job; client polls get_assign_job_status for the result.
+ *
+ * An unchanged submission gets its stored feedback back without a new job, and a student may
+ * start at most {@see assign_access::STUDENT_JOBS_PER_HOUR} jobs per assignment and hour.
  */
 class mod_assign_pre_submission extends external_api {
     /**
@@ -68,22 +74,44 @@ class mod_assign_pre_submission extends external_api {
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
         $courseid = (int) $cm->course;
 
+        // The submission has not changed since its last Analyze: show that result again for free.
+        $submission = $DB->get_record(
+            'assign_submission',
+            ['assignment' => (int) $cm->instance, 'userid' => (int) $USER->id, 'latest' => 1],
+            'id,timemodified,attemptnumber',
+            IGNORE_MULTIPLE
+        );
+        $stored = $submission
+            ? presubmission_feedback_storage::get_by_context((int) $USER->id, 'mod_assign', 'submission', (int) $submission->id)
+            : null;
+        if (
+            $stored
+            && (int) $stored->source_timemodified === (int) $submission->timemodified
+            && (int) $stored->source_attempt === (int) $submission->attemptnumber
+        ) {
+            return [
+                'jobid' => '',
+                'status' => 'completed',
+                'progress' => 100,
+                'courseid' => $courseid,
+                'html' => review_feedback::html((string) $stored->feedback, $context),
+                'errormessage' => '',
+            ];
+        }
+
         try {
             $service = service_factory::get_assign_ux_service(new authorship_persistence_adapter());
-            $operation = $service->submit_review($courseid, (int) $cm->id, (int) $USER->id);
+            $operation = $service->submit_review(
+                $courseid,
+                (int) $cm->id,
+                (int) $USER->id,
+                quota: assign_access::student_job_quota()
+            );
 
             analysis_requested::create([
                 'context' => $context,
                 'relateduserid' => (int) $USER->id,
-                'other' => [
-                    'itemid' => (int) $DB->get_field(
-                        'assign_submission',
-                        'id',
-                        ['assignment' => (int) $cm->instance, 'userid' => (int) $USER->id, 'latest' => 1],
-                        IGNORE_MULTIPLE
-                    ),
-                    'trigger' => 'manual',
-                ],
+                'other' => ['itemid' => $submission ? (int) $submission->id : 0, 'trigger' => 'manual'],
             ])->trigger();
 
             return [
@@ -94,7 +122,12 @@ class mod_assign_pre_submission extends external_api {
                 'html' => '',
                 'errormessage' => '',
             ];
-        } catch (\required_capability_exception | \require_login_exception | consent_required_exception $e) {
+        } catch (
+            \required_capability_exception
+            | \require_login_exception
+            | consent_required_exception
+            | job_quota_exceeded_exception $e
+        ) {
             throw $e;
         } catch (\Throwable $e) {
             $safe = response_factory::safe_message($e);

@@ -35,6 +35,7 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+require_once($CFG->dirroot . '/plagiarism/dixeo/tests/fixtures/race_lock_factory.php');
 
 /**
  * An in-progress verification must come back as the same record, without a new API job.
@@ -44,6 +45,7 @@ require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
  */
 final class check_authorship_resume_test extends \advanced_testcase {
     protected function tearDown(): void {
+        \plagiarism_dixeo\tests\race_lock_factory::before_lock(null, null);
         service_factory::reset();
         parent::tearDown();
     }
@@ -149,5 +151,34 @@ final class check_authorship_resume_test extends \advanced_testcase {
 
         $this->assertSame((int) $seed['record']->id, $result['record_id']);
         $this->assertStringNotContainsString('Resume?', json_encode($result));
+    }
+
+    public function test_a_result_settled_before_the_lock_is_returned_without_a_new_check(): void {
+        global $CFG;
+
+        $seed = $this->seed_open_quiz(author_storage::STATUS_FAILED);
+        $this->setUser($seed['student']);
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->expects($this->never())->method('submit_authorship_and_wait');
+        service_factory::set_test_assign_ux_service($mock);
+
+        // Another session stores a final result between this request's start and its lock.
+        $CFG->lock_factory = '\\' . \plagiarism_dixeo\tests\race_lock_factory::class;
+        \plagiarism_dixeo\tests\race_lock_factory::before_lock(
+            'authorship_submission_' . (int) $seed['record']->itemid,
+            fn() => author_storage::update_record((int) $seed['record']->id, [
+                'status' => author_storage::STATUS_COMPLETE,
+                'final_confidence' => 64.0,
+            ])
+        );
+
+        $result = check_authorship::execute('mod_assign', 'submission', (int) $seed['assign']->cmid);
+
+        $this->assertSame('completed', $result['status']);
+        $this->assertSame(64.0, $result['score']);
+        $this->assertSame(0, $result['record_id']);
+        $stored = author_storage::get_record((int) $seed['record']->id);
+        $this->assertSame(author_storage::STATUS_COMPLETE, $stored->status);
+        $this->assertSame(64.0, (float) $stored->final_confidence);
     }
 }
