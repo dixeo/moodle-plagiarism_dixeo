@@ -55,9 +55,11 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     /**
      * Assignment settings read at the module context, held for the request.
      *
-     * Each value is the assignment's stored value, or the Dixeo default when the assignment
-     * has none. Results are held for the request because the grading table asks for them
-     * once per row.
+     * Automatic grading exists only on the assignment and is off unless it is stored there.
+     * The other values are the assignment's stored value, or the Dixeo default when the
+     * assignment has none. A value is stored on an assignment only from the Dixeo settings
+     * modal or by the module generator, and a later Dixeo change does not rewrite it.
+     * Results are held for the request because the grading table asks for them once per row.
      *
      * @param int $cmid Course module id.
      * @return array<string, string> Setting name => value.
@@ -581,16 +583,16 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
 /**
  * Dixeo settings owned by plagiarism_dixeo.
  *
- * Trigger and the student disclosure are Dixeo-wide. The other settings
- * have a Dixeo default and an assignment copy. There is no course layer. The module generator
- * stores the Dixeo values on a new assignment. An assignment with no copy still uses the
- * Dixeo default. Saving the assignment stores its own copy, and a later Dixeo change does
- * not rewrite it.
+ * Trigger and the student disclosure are Dixeo-wide. Automatic grading exists only on the
+ * assignment. The other settings have a Dixeo default and an optional assignment value. The
+ * module generator stores the Dixeo values on a new assignment; an assignment with no stored
+ * value follows the Dixeo default. A value is stored on an assignment only from the Dixeo
+ * settings modal, and a later Dixeo change does not rewrite it.
  *
  * @return array[]
  */
 function plagiarism_dixeo_dixeo_settings(): array {
-    $score = static function (string $key, string $help): array {
+    $score = static function (string $key, string $help, string $requires): array {
         return [
             'key' => $key,
             'shortname' => $key,
@@ -608,7 +610,7 @@ function plagiarism_dixeo_dixeo_settings(): array {
             'plugingroup' => 'plagiarism_dixeo',
             'help' => $help,
             'sensitive' => false,
-            'requires' => 'verification_test',
+            'requires' => $requires,
         ];
     };
 
@@ -696,9 +698,9 @@ function plagiarism_dixeo_dixeo_settings(): array {
             'sensitive' => false,
             'requires' => 'verification_test',
         ],
-        $score('show_initial_score', 'display_initial_score_visibility_help'),
-        $score('show_test_score', 'display_test_score_visibility_help'),
-        $score('show_final_score', 'display_final_score_visibility_help'),
+        $score('show_initial_score', 'display_initial_score_visibility_help', 'verification_test'),
+        $score('show_test_score', 'display_test_score_visibility_help', 'verification_test'),
+        $score('show_final_score', 'display_final_score_visibility_help', 'authorship_enabled'),
         [
             'key' => 'grading_enabled',
             'shortname' => 'grading_enabled',

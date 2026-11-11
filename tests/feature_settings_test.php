@@ -143,6 +143,17 @@ final class feature_settings_test extends \advanced_testcase {
     }
 
     /**
+     * The final score needs authorship only; the quiz scores need the verification quiz.
+     */
+    public function test_score_visibility_settings_declare_what_they_require(): void {
+        $this->resetAfterTest();
+
+        $this->assertSame('verification_test', $this->definition(feature_settings::SHOW_INITIAL)->get_requires());
+        $this->assertSame('verification_test', $this->definition(feature_settings::SHOW_TEST)->get_requires());
+        $this->assertSame('authorship_enabled', $this->definition(feature_settings::SHOW_FINAL)->get_requires());
+    }
+
+    /**
      * Installed catalogue definition of one plagiarism setting.
      *
      * @param string $name Catalogue key.
