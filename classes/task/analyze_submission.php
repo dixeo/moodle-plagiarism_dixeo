@@ -84,7 +84,7 @@ class analyze_submission extends \core\task\adhoc_task {
         }
 
         // An administrator or teacher may have opted out since the submission was made.
-        if (!analysis_gate::is_available() || !analysis_gate::is_enabled_for_activity($cmid)) {
+        if (!analysis_gate::is_available() || !analysis_gate::automatic_analysis_enabled($cmid)) {
             mtrace("plagiarism_dixeo: analysis is switched off for course module $cmid, skipping.");
             return;
         }
@@ -110,7 +110,9 @@ class analyze_submission extends \core\task\adhoc_task {
 
         // Terms withdrawn since queueing: nothing is sent and a retry would not help.
         try {
-            $this->store_review($service, $context, $submission, $courseid, $cmid, $userid);
+            if (\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
+                $this->store_review($service, $context, $submission, $courseid, $cmid, $userid);
+            }
             $this->store_authorship($service, $context, $submission, $courseid, $cmid, $userid);
         } catch (consent_required_exception $e) {
             mtrace('plagiarism_dixeo: terms not current, nothing sent.');

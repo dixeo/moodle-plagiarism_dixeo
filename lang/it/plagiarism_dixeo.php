@@ -22,7 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['activity_not_enabled'] = 'Dixeo non è abilitato per questo compito.';
+$string['activity_not_enabled'] = 'Questa funzione di Dixeo non è abilitata per questo compito.';
 $string['analysis_aria_label'] = 'Analisi IA';
 $string['analyze'] = 'Analizza';
 $string['analyzing'] = 'Analisi in corso...';
@@ -31,7 +31,7 @@ $string['assign_trigger_help'] = 'Analizza ogni bozza caricata dallo studente op
 $string['assign_trigger_submit'] = 'Solo alla consegna finale';
 $string['assign_trigger_upload'] = 'A ogni caricamento (bozza)';
 $string['assignment_feedback_enabled'] = 'Feedback sul compito';
-$string['assignment_feedback_enabled_help'] = 'Analizza le consegne del compito e mostra agli studenti il testo informativo. Ogni compito conserva la propria copia di questo interruttore.';
+$string['assignment_feedback_enabled_help'] = 'Fornisci agli studenti un feedback di supporto sul loro lavoro prima della consegna e analizza automaticamente le consegne. Ogni compito conserva la propria copia di questo interruttore.';
 $string['authorship_confirm_statement'] = 'Confermo di aver scritto questo testo da solo';
 $string['authorship_enabled'] = 'Attiva la verifica di paternità';
 $string['authorship_enabled_desc'] = 'Se attivato, il testo della consegna può essere valutato con un punteggio di fiducia di paternità. Sotto la soglia, può essere richiesto un quiz di verifica.';

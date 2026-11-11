@@ -90,7 +90,7 @@ class retry_pending_analysis extends \core\task\scheduled_task {
             if (!$cm || !\plagiarism_plugin_dixeo::enabled_for_course((int) $cm->course)) {
                 continue;
             }
-            if (!analysis_gate::is_enabled_for_activity((int) $cm->id)) {
+            if (!\plagiarism_plugin_dixeo::authorship_enabled_for_activity((int) $cm->id)) {
                 continue;
             }
             if (!$consent->may_process_for((int) $record->userid, (int) $cm->course)) {

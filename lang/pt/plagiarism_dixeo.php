@@ -22,7 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['activity_not_enabled'] = 'O Dixeo não está ativado para este trabalho.';
+$string['activity_not_enabled'] = 'Esta funcionalidade do Dixeo não está ativada para este trabalho.';
 $string['analysis_aria_label'] = 'Análise de IA';
 $string['analyze'] = 'Analisar';
 $string['analyzing'] = 'A analisar...';
@@ -31,7 +31,7 @@ $string['assign_trigger_help'] = 'Analisar cada rascunho que o estudante carrega
 $string['assign_trigger_submit'] = 'Apenas na submissão final';
 $string['assign_trigger_upload'] = 'Em cada carregamento (rascunho)';
 $string['assignment_feedback_enabled'] = 'Feedback do trabalho';
-$string['assignment_feedback_enabled_help'] = 'Analisar as submissões do trabalho e mostrar aos estudantes o texto informativo. Cada trabalho mantém a sua própria cópia deste interruptor.';
+$string['assignment_feedback_enabled_help'] = 'Dar aos estudantes feedback de orientação sobre o seu trabalho antes de submeterem e analisar as submissões automaticamente. Cada trabalho mantém a sua própria cópia deste interruptor.';
 $string['authorship_confirm_statement'] = 'Confirmo que este texto é da minha autoria';
 $string['authorship_enabled'] = 'Ativar a verificação de autoria';
 $string['authorship_enabled_desc'] = 'Se estiver ativado, o texto da submissão pode ser avaliado com uma pontuação de confiança de autoria. Abaixo do limiar, pode ser exigido um questionário de verificação.';

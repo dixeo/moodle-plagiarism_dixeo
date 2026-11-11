@@ -148,6 +148,51 @@ final class automation_test extends \advanced_testcase {
     }
 
     /**
+     * Run the analysis task for the test submission as the student.
+     */
+    private function run_analysis_task(): void {
+        $task = new analyze_submission();
+        $task->set_custom_data([
+            'cmid' => (int) $this->assign->cmid,
+            'courseid' => (int) $this->course->id,
+            'userid' => (int) $this->student->id,
+            'submissionid' => $this->submissionid,
+        ]);
+        $this->setUser($this->student);
+        ob_start();
+        try {
+            $task->execute();
+        } finally {
+            ob_end_clean();
+        }
+    }
+
+    /**
+     * Authorship record stored for the test submission, or null.
+     *
+     * @return \stdClass|null
+     */
+    private function stored_authorship(): ?\stdClass {
+        return author_storage::get_record_by_context(
+            (int) $this->student->id,
+            'mod_assign',
+            'submission',
+            $this->submissionid
+        );
+    }
+
+    /**
+     * Whether coaching feedback is stored for the test submission.
+     *
+     * @return bool
+     */
+    private function has_stored_feedback(): bool {
+        global $DB;
+
+        return $DB->record_exists(presubmission_feedback_storage::TABLE, ['itemid' => $this->submissionid]);
+    }
+
+    /**
      * Fire the event the given trigger corresponds to.
      *
      * @param string $trigger One of the analysis_gate TRIGGER_* constants.
@@ -216,6 +261,48 @@ final class automation_test extends \advanced_testcase {
         $this->fire_submission_event(analysis_gate::TRIGGER_SUBMIT);
 
         $this->assertSame(0, $this->count_queued_tasks());
+    }
+
+    public function test_authorship_alone_queues_the_analysis(): void {
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('authorship_enabled', '1', 'plagiarism_dixeo');
+
+        $this->fire_submission_event(analysis_gate::TRIGGER_SUBMIT);
+
+        $this->assertSame(1, $this->count_queued_tasks());
+    }
+
+    public function test_authorship_alone_stores_authorship_without_a_review(): void {
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('authorship_enabled', '1', 'plagiarism_dixeo');
+        $service = $this->createMock(assign_ux_service::class);
+        $service->expects($this->never())->method('submit_review_and_wait');
+        $service->expects($this->once())
+            ->method('submit_authorship_and_wait')
+            ->willReturn(operation_result::completed('job-confidence', []));
+        $service->method('map_authorship_result')->willReturn(['confidence' => 90.0, 'explanation' => 'Consistent.']);
+        service_factory::set_test_assign_ux_service($service);
+
+        $this->run_analysis_task();
+
+        $this->assertNotNull($this->stored_authorship());
+        $this->assertFalse($this->has_stored_feedback());
+    }
+
+    public function test_feedback_alone_stores_the_review_without_authorship(): void {
+        set_config('authorship_enabled', '0', 'plagiarism_dixeo');
+        $service = $this->createMock(assign_ux_service::class);
+        $service->expects($this->never())->method('submit_authorship_and_wait');
+        $service->expects($this->once())
+            ->method('submit_review_and_wait')
+            ->willReturn(operation_result::completed('job-review', []));
+        $service->method('map_review_result')->willReturn(['feedback_html' => '<p>Coaching.</p>']);
+        service_factory::set_test_assign_ux_service($service);
+
+        $this->run_analysis_task();
+
+        $this->assertNull($this->stored_authorship());
+        $this->assertTrue($this->has_stored_feedback());
     }
 
     public function test_nothing_is_queued_when_plagiarism_is_off_site_wide(): void {

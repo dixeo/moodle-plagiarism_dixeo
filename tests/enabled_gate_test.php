@@ -43,6 +43,7 @@ require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
  * @covers     \plagiarism_plugin_dixeo::get_links
  * @covers     \plagiarism_plugin_dixeo::print_disclosure
  * @covers     \plagiarism_plugin_dixeo::enabled_for_course
+ * @covers     \plagiarism_plugin_dixeo::grading_enabled_for_activity
  * @covers     ::plagiarism_dixeo_coursemodule_standard_elements
  * @covers     \plagiarism_dixeo\observer::submission_submitted
  * @covers     \plagiarism_dixeo\hook\output::amd_calls_for_url
@@ -173,6 +174,31 @@ final class enabled_gate_test extends \advanced_testcase {
             'other' => ['submission_editable' => false],
         ])->trigger();
         $this->assertSame(0, $DB->count_records('task_adhoc', ['classname' => '\\' . analyze_submission::class]));
+    }
+
+    /**
+     * Grading for an assignment follows the plagiarism switch and the course master switch.
+     */
+    public function test_grading_follows_the_plagiarism_and_course_switches(): void {
+        global $CFG;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        [$course, $cm] = $this->assignment_with_analysis();
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        $this->assertTrue(\plagiarism_plugin_dixeo::grading_enabled_for_activity((int) $cm->id));
+
+        $CFG->enableplagiarism = 0;
+        $this->assertFalse(\plagiarism_plugin_dixeo::grading_enabled_for_activity((int) $cm->id));
+
+        $CFG->enableplagiarism = 1;
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'local_dixeo',
+            'enabled',
+            \context_course::instance($course->id),
+            '0'
+        );
+        $this->assertFalse(\plagiarism_plugin_dixeo::grading_enabled_for_activity((int) $cm->id));
     }
 
     /**

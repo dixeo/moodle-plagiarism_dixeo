@@ -512,6 +512,33 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     }
 
     /**
+     * Whether Assist Grade and automatic grading are available for this assignment.
+     *
+     * This does not consult the assignment feedback switch.
+     *
+     * @param int $cmid Course module id.
+     * @return bool
+     */
+    public static function grading_enabled_for_activity(int $cmid): bool {
+        return self::feature_enabled_for_activity(
+            $cmid,
+            static fn(\context $context): bool => \plagiarism_dixeo\feature_settings::grading_on($context)
+        );
+    }
+
+    /**
+     * Whether this assignment uses any feature that sends student work to Dixeo.
+     *
+     * @param int $cmid Course module id.
+     * @return bool True when assignment feedback, authorship verification or grading is on.
+     */
+    public static function any_sending_feature_enabled(int $cmid): bool {
+        return self::is_enabled_for_activity($cmid)
+            || self::authorship_enabled_for_activity($cmid)
+            || self::grading_enabled_for_activity($cmid);
+    }
+
+    /**
      * Whether one assignment feature is on, after the site and course master switches.
      *
      * @param int $cmid Course module id.

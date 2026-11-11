@@ -22,7 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['activity_not_enabled'] = 'Dixeo is not enabled for this assignment.';
+$string['activity_not_enabled'] = 'This Dixeo feature is not enabled for this assignment.';
 $string['analysis_aria_label'] = 'AI analysis';
 $string['analyze'] = 'Analyze';
 $string['analyzing'] = 'Analyzing...';
@@ -31,7 +31,7 @@ $string['assign_trigger_help'] = 'Analyse every draft the student uploads, or wa
 $string['assign_trigger_submit'] = 'On final submit only';
 $string['assign_trigger_upload'] = 'On every upload (draft)';
 $string['assignment_feedback_enabled'] = 'Assignment feedback';
-$string['assignment_feedback_enabled_help'] = 'Analyse assignment submissions and show students the disclosure. Each assignment keeps its own copy of this switch.';
+$string['assignment_feedback_enabled_help'] = 'Give students coaching feedback on their submission before they submit, and analyse submissions automatically. Each assignment keeps its own copy of this switch.';
 $string['authorship_confirm_statement'] = 'I confirm that this text is from my own authorship';
 $string['authorship_enabled'] = 'Enable authorship verification';
 $string['authorship_enabled_desc'] = 'When enabled, submission text can be checked for authorship confidence. Below the threshold, a verification quiz may be required.';

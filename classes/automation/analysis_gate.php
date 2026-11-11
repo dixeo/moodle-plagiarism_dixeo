@@ -28,8 +28,10 @@ namespace plagiarism_dixeo\automation;
  * The switches that all have to be on before Dixeo looks at a submission by itself.
  *
  * Automatic analysis sends student work to an external service, so it stays off unless
- * the master switch is on and this assignment's feedback switch is on. The gate is
- * consulted twice: when the event fires, and again when the queued task runs.
+ * the master switch is on and this assignment uses assignment feedback or authorship
+ * verification. A draft grade needs grading and automatic grading on, whatever the
+ * feedback switch says. The gate is consulted twice: when the event fires, and again
+ * when the queued task runs.
  */
 class analysis_gate {
     /** @var string Analyse as soon as a draft is saved. */
@@ -81,7 +83,24 @@ class analysis_gate {
             return false;
         }
 
-        return self::is_enabled_for_activity($cmid);
+        return self::automatic_analysis_enabled($cmid);
+    }
+
+    /**
+     * Whether this assignment uses a feature that analyses submissions automatically.
+     *
+     * Assignment feedback and authorship verification each start the analysis on their own.
+     *
+     * @param int $cmid Assignment course module id.
+     * @return bool
+     */
+    public static function automatic_analysis_enabled(int $cmid): bool {
+        global $CFG;
+
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
+        return \plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)
+            || \plagiarism_plugin_dixeo::authorship_enabled_for_activity($cmid);
     }
 
     /**
@@ -109,12 +128,12 @@ class analysis_gate {
 
         require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
 
-        if ($cmid <= 0 || !\plagiarism_dixeo\feature_settings::grading_on(\context_module::instance($cmid))) {
+        if ($cmid <= 0 || !\plagiarism_plugin_dixeo::grading_enabled_for_activity($cmid)) {
             return false;
         }
 
         $config = \plagiarism_plugin_dixeo::get_activity_config($cmid);
 
-        return self::is_enabled_for_activity($cmid) && (int) ($config['enable_auto_grading'] ?? 0) === 1;
+        return $config[\plagiarism_dixeo\feature_settings::AUTO_GRADING] === '1';
     }
 }

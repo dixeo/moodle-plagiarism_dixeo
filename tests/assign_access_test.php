@@ -153,7 +153,7 @@ final class assign_access_test extends \advanced_testcase {
         assign_access::require_student_analyze((int) $assign->cmid);
     }
 
-    public function test_teacher_cannot_grade_when_the_activity_is_off(): void {
+    public function test_teacher_can_grade_when_feedback_is_off(): void {
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
         $this->enable_dixeo((int) $assign->cmid);
@@ -161,8 +161,39 @@ final class assign_access_test extends \advanced_testcase {
         $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
         $this->setUser($teacher);
 
+        $context = assign_access::require_teacher_grade((int) $assign->cmid);
+        $this->assertInstanceOf(\context_module::class, $context);
+    }
+
+    public function test_teacher_cannot_grade_when_grading_is_off(): void {
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $this->setUser($teacher);
+
         $this->expectException(\moodle_exception::class);
-        $this->expectExceptionMessage(get_string('activity_not_enabled', 'plagiarism_dixeo'));
+        $this->expectExceptionMessage(get_string('grading_not_enabled', 'plagiarism_dixeo'));
+        assign_access::require_teacher_grade((int) $assign->cmid);
+    }
+
+    public function test_teacher_cannot_grade_while_the_course_is_off(): void {
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $this->enable_dixeo((int) $assign->cmid);
+        $this->setAdminUser();
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'local_dixeo',
+            'enabled',
+            \context_course::instance($course->id),
+            '0'
+        );
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $this->setUser($teacher);
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('grading_not_enabled', 'plagiarism_dixeo'));
         assign_access::require_teacher_grade((int) $assign->cmid);
     }
 

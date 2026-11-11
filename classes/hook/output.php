@@ -113,7 +113,7 @@ class output {
                 ];
                 continue;
             }
-            if ($module === 'plagiarism_dixeo/mod_assign_grade_submission' && (!$feedbackon || !$gradingon)) {
+            if ($module === 'plagiarism_dixeo/mod_assign_grade_submission' && !$gradingon) {
                 continue;
             }
             $calls[] = $entry['amd'];

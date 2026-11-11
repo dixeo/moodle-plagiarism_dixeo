@@ -22,7 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['activity_not_enabled'] = 'Dixeo n\'est pas activé pour ce devoir.';
+$string['activity_not_enabled'] = 'Cette fonctionnalité Dixeo n\'est pas activée pour ce devoir.';
 $string['analysis_aria_label'] = 'Analyse IA';
 $string['analyze'] = 'Analyser';
 $string['analyzing'] = 'Analyse en cours...';
@@ -31,7 +31,7 @@ $string['assign_trigger_help'] = 'Analyser chaque brouillon déposé par l\'étu
 $string['assign_trigger_submit'] = 'Uniquement à la remise finale';
 $string['assign_trigger_upload'] = 'À chaque dépôt (brouillon)';
 $string['assignment_feedback_enabled'] = 'Retour sur le devoir';
-$string['assignment_feedback_enabled_help'] = 'Analyser les remises du devoir et afficher aux étudiants le texte d\'information. Chaque devoir conserve sa propre copie de ce réglage.';
+$string['assignment_feedback_enabled_help'] = 'Donner aux étudiants un retour d\'accompagnement sur leur travail avant la remise, et analyser les remises automatiquement. Chaque devoir conserve sa propre copie de ce réglage.';
 $string['authorship_confirm_statement'] = 'Je confirme que j\'ai rédigé ce texte moi-même.';
 $string['authorship_enabled'] = 'Activer la vérification d\'authenticité';
 $string['authorship_enabled_desc'] = 'Lorsque cette option est activée, le texte de la remise peut être évalué pour un score de confiance d\'authenticité. Sous le seuil, un quiz de vérification peut être exigé.';

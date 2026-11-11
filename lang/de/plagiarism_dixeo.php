@@ -22,7 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['activity_not_enabled'] = 'Dixeo ist für diese Aufgabe nicht aktiviert.';
+$string['activity_not_enabled'] = 'Diese Dixeo-Funktion ist für diese Aufgabe nicht aktiviert.';
 $string['analysis_aria_label'] = 'KI-Analyse';
 $string['analyze'] = 'Analysieren';
 $string['analyzing'] = 'Analyse läuft...';
@@ -31,7 +31,7 @@ $string['assign_trigger_help'] = 'Jede hochgeladene Entwurfdatei analysieren ode
 $string['assign_trigger_submit'] = 'Nur bei endgültiger Abgabe';
 $string['assign_trigger_upload'] = 'Bei jedem Upload (Entwurf)';
 $string['assignment_feedback_enabled'] = 'Aufgabenfeedback';
-$string['assignment_feedback_enabled_help'] = 'Aufgabenabgaben analysieren und Studierenden den Hinweistext anzeigen. Jede Aufgabe behält eine eigene Kopie dieses Schalters.';
+$string['assignment_feedback_enabled_help'] = 'Studierenden vor der Abgabe ein unterstützendes Feedback zu ihrer Arbeit geben und Abgaben automatisch analysieren. Jede Aufgabe behält eine eigene Kopie dieses Schalters.';
 $string['authorship_confirm_statement'] = 'Ich bestätige, dass dieser Text von mir selbst verfasst wurde';
 $string['authorship_enabled'] = 'Urheberschaftsprüfung aktivieren';
 $string['authorship_enabled_desc'] = 'Wenn aktiviert, kann der Abgabetext auf Urheberschaftskonfidenz geprüft werden. Unter dem Schwellenwert kann ein Verifizierungsquiz erforderlich sein.';

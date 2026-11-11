@@ -61,7 +61,7 @@ final class assign_access {
         external_api::validate_context($context);
         require_capability('plagiarism/dixeo:mod_assign_pre_submission', $context);
         require_capability('mod/assign:submit', $context);
-        self::require_activity_enabled($cmid);
+        self::require_feedback_enabled($cmid);
         return $context;
     }
 
@@ -98,7 +98,6 @@ final class assign_access {
         external_api::validate_context($context);
         require_capability('plagiarism/dixeo:mod_assign_grade_submission', $context);
         require_capability('mod/assign:grade', $context);
-        self::require_activity_enabled($cmid);
         self::require_grading_enabled($cmid);
         return $context;
     }
@@ -129,7 +128,7 @@ final class assign_access {
     }
 
     /**
-     * Refuse when the site or this assignment has Dixeo switched off.
+     * Refuse when assignment feedback is off for this assignment, the course or the site.
      *
      * Capability checks run first so an outsider still sees a login or capability error
      * rather than a setting message for an activity they cannot reach.
@@ -137,7 +136,7 @@ final class assign_access {
      * @param int $cmid Assign course module id.
      * @throws \moodle_exception
      */
-    public static function require_activity_enabled(int $cmid): void {
+    public static function require_feedback_enabled(int $cmid): void {
         global $CFG;
 
         require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
@@ -164,13 +163,19 @@ final class assign_access {
     }
 
     /**
-     * Refuse Assist Grade when this assignment's grading switch is off.
+     * Refuse Assist Grade when grading is off for this assignment, the course or the site.
+     *
+     * Assignment feedback is not consulted.
      *
      * @param int $cmid Assign course module id.
      * @throws \moodle_exception
      */
     public static function require_grading_enabled(int $cmid): void {
-        if ($cmid <= 0 || !\plagiarism_dixeo\feature_settings::grading_on(\context_module::instance($cmid))) {
+        global $CFG;
+
+        require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
+
+        if ($cmid <= 0 || !\plagiarism_plugin_dixeo::grading_enabled_for_activity($cmid)) {
             throw new \moodle_exception('grading_not_enabled', 'plagiarism_dixeo');
         }
     }

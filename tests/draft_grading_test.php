@@ -473,6 +473,28 @@ final class draft_grading_test extends \advanced_testcase {
         ]) ?: null;
     }
 
+    public function test_a_draft_is_staged_with_grading_on_and_feedback_off(): void {
+        global $DB;
+
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        $this->fire_submitted();
+        $this->assertSame(1, $DB->count_records('task_adhoc', ['classname' => '\\' . stage_draft_grade::class]));
+
+        $this->mock_grade_job(81.0);
+        $this->run_staging_task();
+
+        $this->assertSame(grade_feedback_storage::STATUS_DRAFT, $this->stored_draft()->status);
+    }
+
+    public function test_nothing_is_staged_when_grading_is_off(): void {
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
+
+        $this->mock_grade_job(81.0);
+        $this->run_staging_task();
+
+        $this->assertNull($this->stored_draft());
+    }
+
     public function test_without_a_recorded_teacher_only_a_draft_is_kept(): void {
         global $DB;
 

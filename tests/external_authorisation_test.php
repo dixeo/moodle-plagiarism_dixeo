@@ -212,13 +212,49 @@ final class external_authorisation_test extends \advanced_testcase {
         mod_assign_pre_submission::execute((int) $this->assign->cmid);
     }
 
-    public function test_grade_submission_refuses_when_the_activity_is_off(): void {
+    public function test_grade_submission_works_with_feedback_off_and_grading_on(): void {
         $this->enable_dixeo();
         set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        $this->create_submission((int) $this->student->id);
+        $mock = $this->createMock(\local_dixeo\service\assign_ux_service::class);
+        $mock->expects($this->once())
+            ->method('submit_grade')
+            ->willReturn(\local_dixeo\dto\operation_result::pending('job-grade-1'));
+        \local_dixeo\external\service_factory::set_test_assign_ux_service($mock);
+        $this->setUser($this->teacher);
+
+        try {
+            $result = mod_assign_grade_submission::execute((int) $this->assign->cmid, (int) $this->student->id);
+        } finally {
+            \local_dixeo\external\service_factory::reset();
+        }
+
+        $this->assertSame('job-grade-1', $result['jobid']);
+    }
+
+    public function test_grade_submission_refuses_when_grading_is_off(): void {
+        $this->enable_dixeo();
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
         $this->setUser($this->teacher);
 
         $this->expectException(\moodle_exception::class);
-        $this->expectExceptionMessage(get_string('activity_not_enabled', 'plagiarism_dixeo'));
+        $this->expectExceptionMessage(get_string('grading_not_enabled', 'plagiarism_dixeo'));
+        mod_assign_grade_submission::execute((int) $this->assign->cmid, (int) $this->student->id);
+    }
+
+    public function test_grade_submission_refuses_while_the_course_is_off(): void {
+        $this->enable_dixeo();
+        $this->setAdminUser();
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'local_dixeo',
+            'enabled',
+            \context_course::instance($this->course->id),
+            '0'
+        );
+        $this->setUser($this->teacher);
+
+        $this->expectException(\moodle_exception::class);
+        $this->expectExceptionMessage(get_string('grading_not_enabled', 'plagiarism_dixeo'));
         mod_assign_grade_submission::execute((int) $this->assign->cmid, (int) $this->student->id);
     }
 }

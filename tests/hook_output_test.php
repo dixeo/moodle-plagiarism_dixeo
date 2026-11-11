@@ -96,6 +96,7 @@ final class hook_output_test extends \advanced_testcase {
     public function test_submission_page_loads_the_quiz_when_feedback_is_off(): void {
         set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
         set_config('authorship_enabled', '1', 'plagiarism_dixeo');
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
 
         $this->assertSame(
             ['plagiarism_dixeo/mod_assign_pre_submission'],
@@ -118,7 +119,10 @@ final class hook_output_test extends \advanced_testcase {
         );
 
         $this->assertSame([], $this->modules_for($this->assign_url()));
-        $this->assertSame([], $this->modules_for($this->assign_url(['action' => 'grader'])));
+        $this->assertSame(
+            ['plagiarism_dixeo/mod_assign_grade_submission'],
+            $this->modules_for($this->assign_url(['action' => 'grader']))
+        );
     }
 
     public function test_grader_is_omitted_when_grading_is_off(): void {
@@ -131,8 +135,19 @@ final class hook_output_test extends \advanced_testcase {
         $this->assertSame([], $this->modules_for($this->assign_url(['action' => 'grader'])));
     }
 
-    public function test_no_scripts_when_the_dixeo_feedback_default_is_off(): void {
+    public function test_grader_loads_with_grading_on_and_feedback_off(): void {
         set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+
+        $this->assertSame([], $this->modules_for($this->assign_url()));
+        $this->assertSame(
+            ['plagiarism_dixeo/mod_assign_grade_submission'],
+            $this->modules_for($this->assign_url(['action' => 'grader']))
+        );
+    }
+
+    public function test_no_scripts_when_feedback_authorship_and_grading_are_off(): void {
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
 
         $this->assertSame([], $this->modules_for($this->assign_url()));
         $this->assertSame([], $this->modules_for($this->assign_url(['action' => 'grader'])));
