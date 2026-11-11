@@ -311,7 +311,53 @@ final class panels_test extends \advanced_testcase {
             $plugin->print_disclosure((int) $this->cm->id)
         );
 
-        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('student_disclosure', '   ', 'plagiarism_dixeo');
         $this->assertSame('', $plugin->print_disclosure((int) $this->cm->id));
+    }
+
+    public function test_disclosure_is_shown_for_authorship_alone(): void {
+        set_config('student_disclosure', 'Your work will be analysed.', 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
+        $this->setUser($this->student);
+
+        $html = (new \plagiarism_plugin_dixeo())->print_disclosure((int) $this->cm->id);
+
+        $this->assertStringContainsString('Your work will be analysed.', $html);
+    }
+
+    public function test_disclosure_is_shown_for_grading_alone(): void {
+        set_config('student_disclosure', 'Your work will be analysed.', 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('authorship_enabled', '0', 'plagiarism_dixeo');
+        $this->setUser($this->student);
+
+        $html = (new \plagiarism_plugin_dixeo())->print_disclosure((int) $this->cm->id);
+
+        $this->assertStringContainsString('Your work will be analysed.', $html);
+    }
+
+    public function test_disclosure_is_hidden_when_nothing_is_sent(): void {
+        set_config('student_disclosure', 'Your work will be analysed.', 'plagiarism_dixeo');
+        set_config('assignment_feedback_enabled', '0', 'plagiarism_dixeo');
+        set_config('authorship_enabled', '0', 'plagiarism_dixeo');
+        set_config('grading_enabled', '0', 'plagiarism_dixeo');
+        $this->setUser($this->student);
+
+        $this->assertSame('', (new \plagiarism_plugin_dixeo())->print_disclosure((int) $this->cm->id));
+    }
+
+    public function test_disclosure_is_hidden_while_the_course_is_off(): void {
+        set_config('student_disclosure', 'Your work will be analysed.', 'plagiarism_dixeo');
+        $this->setAdminUser();
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'local_dixeo',
+            'enabled',
+            \context_course::instance($this->course->id),
+            '0'
+        );
+        $this->setUser($this->student);
+
+        $this->assertSame('', (new \plagiarism_plugin_dixeo())->print_disclosure((int) $this->cm->id));
     }
 }

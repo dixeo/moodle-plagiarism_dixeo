@@ -171,7 +171,9 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     }
 
     /**
-     * Notify students that their submission will be analysed.
+     * Notify students that their submission will be sent to Dixeo.
+     *
+     * Shown whenever the assignment uses assignment feedback, authorship verification or grading.
      *
      * @param int $cmid Course module id.
      * @return string HTML fragment, or an empty string when nothing is configured.
@@ -181,7 +183,7 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
         if ($cm && !self::enabled_for_course((int) $cm->course)) {
             return '';
         }
-        if (!$cm || !self::is_enabled_for_activity((int) $cmid)) {
+        if (!$cm || !self::any_sending_feature_enabled((int) $cmid)) {
             return '';
         }
 
