@@ -108,7 +108,13 @@ final class consent_gate_test extends \advanced_testcase {
             'onlinetext' => '<p>My essay.</p>',
             'onlineformat' => FORMAT_HTML,
         ]);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['enable_auto_grading' => '1']);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $this->assign->cmid),
+            '1',
+            false
+        );
     }
 
     protected function tearDown(): void {

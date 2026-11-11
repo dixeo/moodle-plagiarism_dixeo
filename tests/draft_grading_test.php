@@ -92,9 +92,13 @@ final class draft_grading_test extends \advanced_testcase {
             'latest' => 1,
         ]);
 
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, [
-            'enable_auto_grading' => '1',
-        ]);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $this->assign->cmid),
+            '1',
+            false
+        );
     }
 
     protected function tearDown(): void {
@@ -157,9 +161,13 @@ final class draft_grading_test extends \advanced_testcase {
     public function test_no_draft_is_prepared_unless_the_activity_opted_in(): void {
         global $DB;
 
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, [
-            'enable_auto_grading' => '0',
-        ]);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $this->assign->cmid),
+            '0',
+            false
+        );
 
         $this->fire_submitted();
 
@@ -183,9 +191,13 @@ final class draft_grading_test extends \advanced_testcase {
     }
 
     public function test_the_task_does_nothing_once_draft_grading_is_switched_off(): void {
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, [
-            'enable_auto_grading' => '0',
-        ]);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $this->assign->cmid),
+            '0',
+            false
+        );
 
         $task = new stage_draft_grade();
         $task->set_custom_data([
@@ -407,8 +419,20 @@ final class draft_grading_test extends \advanced_testcase {
      */
     private function switch_on_as(\stdClass $user): void {
         $this->setUser($user);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['enable_auto_grading' => '0']);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['enable_auto_grading' => '1']);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $this->assign->cmid),
+            '0',
+            false
+        );
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $this->assign->cmid),
+            '1',
+            false
+        );
         $this->setUser(null);
     }
 

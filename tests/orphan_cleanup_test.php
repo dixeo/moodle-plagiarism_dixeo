@@ -115,24 +115,16 @@ final class orphan_cleanup_test extends \advanced_testcase {
     }
 
     public function test_deleting_an_assignment_removes_its_rows_only(): void {
-        global $DB;
-
         $assign = $this->create_assign();
         $other = $this->create_assign();
         $submissionid = $this->create_analysis($assign);
         $otherid = $this->create_analysis($other);
-        $DB->insert_record(\plagiarism_plugin_dixeo::CONFIG_TABLE, (object) [
-            'cm' => (int) $assign->cmid,
-            'name' => 'enable_auto_grading',
-            'value' => '1',
-        ]);
         autograde_enabler::record((int) $assign->cmid, (int) get_admin()->id);
         autograde_enabler::record((int) $other->cmid, (int) get_admin()->id);
 
         course_delete_module((int) $assign->cmid);
 
         $this->assertSame(0, $this->count_analysis($submissionid));
-        $this->assertFalse($DB->record_exists(\plagiarism_plugin_dixeo::CONFIG_TABLE, ['cm' => (int) $assign->cmid]));
         $this->assertSame(0, autograde_enabler::get_userid((int) $assign->cmid));
         $this->assertSame(3, $this->count_analysis($otherid));
         $this->assertSame((int) get_admin()->id, autograde_enabler::get_userid((int) $other->cmid));

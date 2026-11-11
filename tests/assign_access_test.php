@@ -170,9 +170,13 @@ final class assign_access_test extends \advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
         $this->enable_dixeo((int) $assign->cmid);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, [
-            'enable_auto_grading' => '0',
-        ]);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $assign->cmid),
+            '0',
+            false
+        );
         $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
         $this->setUser($teacher);
 

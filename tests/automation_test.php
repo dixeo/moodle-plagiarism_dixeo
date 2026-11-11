@@ -483,7 +483,13 @@ final class automation_test extends \advanced_testcase {
         global $DB, $USER;
 
         $grading = \context_module::instance((int) $this->assign->cmid);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->assign->cmid, ['enable_auto_grading' => '1']);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $this->assign->cmid),
+            '1',
+            false
+        );
         $this->assertTrue(analysis_gate::wants_draft_grade((int) $grading->instanceid));
         $mock = $this->createMock(assign_ux_service::class);
         $mock->expects($this->never())->method($this->anything());

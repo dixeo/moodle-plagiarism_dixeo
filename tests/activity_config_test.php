@@ -31,7 +31,7 @@ global $CFG;
 require_once($CFG->dirroot . '/plagiarism/dixeo/lib.php');
 
 /**
- * Activity settings must default to off and reject values outside their allowed list.
+ * Assignment settings resolve to the stored assignment value or the Dixeo default.
  *
  * @covers \plagiarism_plugin_dixeo
  */
@@ -79,55 +79,32 @@ final class activity_config_test extends \advanced_testcase {
         $this->assertArrayNotHasKey('use_dixeo', $config);
     }
 
-    public function test_values_round_trip_and_replace_rather_than_duplicate(): void {
-        global $DB;
+    public function test_the_stored_assignment_value_is_returned(): void {
+        $this->setAdminUser();
+        $context = \context_module::instance((int) $this->cm->id);
+        $config = \local_dixeo\external\service_factory::get_settings_config();
+        $config->set('plagiarism_dixeo', 'show_initial_score', \context_system::instance(), 'hide');
+        $config->set('plagiarism_dixeo', 'show_initial_score', $context, 'scoreandfeedback', false);
+        $config->set('plagiarism_dixeo', 'authorship_threshold', $context, '40', false);
 
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, [
-            'enable_auto_grading' => '1',
-            'show_initial_score' => 'hide',
-        ]);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, [
-            'show_initial_score' => 'scoreandfeedback',
-        ]);
-
-        $config = \plagiarism_plugin_dixeo::get_activity_config((int) $this->cm->id);
-        $this->assertSame('1', $config['enable_auto_grading']);
-        $this->assertSame('scoreandfeedback', $config['show_initial_score']);
-        $this->assertEquals(2, $DB->count_records('plagiarism_dixeo_config', ['cm' => $this->cm->id]));
+        $stored = \plagiarism_plugin_dixeo::get_activity_config((int) $this->cm->id);
+        $this->assertSame('scoreandfeedback', $stored['show_initial_score']);
+        $this->assertSame('40', $stored['authorship_threshold']);
     }
 
-    public function test_values_outside_the_allowed_list_are_not_stored(): void {
-        global $DB;
-
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, [
-            'authorship_threshold' => '120',
-            'show_final_score' => 'everything',
-        ]);
-
-        $this->assertFalse($DB->record_exists('plagiarism_dixeo_config', [
-            'cm' => $this->cm->id,
-            'name' => 'authorship_threshold',
-        ]));
-        $config = \plagiarism_plugin_dixeo::get_activity_config((int) $this->cm->id);
-        $this->assertSame('75', $config['authorship_threshold']);
-        $this->assertSame('score', $config['show_final_score']);
-    }
-
-    public function test_an_invalid_activity_threshold_follows_the_dixeo_default(): void {
+    public function test_an_assignment_without_a_stored_value_follows_the_dixeo_default(): void {
         global $DB;
 
         $this->setAdminUser();
+        $context = \context_module::instance((int) $this->cm->id);
+        $DB->delete_records('local_dixeo_setting', ['contextid' => $context->id]);
         $config = \local_dixeo\external\service_factory::get_settings_config();
         $config->set('plagiarism_dixeo', 'authorship_threshold', \context_system::instance(), '80');
-        $DB->insert_record('local_dixeo_setting', (object) [
-            'contextid' => \context_module::instance((int) $this->cm->id)->id,
-            'component' => 'plagiarism_dixeo',
-            'name' => 'authorship_threshold',
-            'value' => '500',
-        ]);
+        $config->set('plagiarism_dixeo', 'show_test_score', \context_system::instance(), 'hide');
 
-        $stored = \plagiarism_plugin_dixeo::get_activity_config((int) $this->cm->id);
-        $this->assertSame('80', $stored['authorship_threshold']);
+        $resolved = \plagiarism_plugin_dixeo::get_activity_config((int) $this->cm->id);
+        $this->assertSame('80', $resolved['authorship_threshold']);
+        $this->assertSame('hide', $resolved['show_test_score']);
     }
 
     public function test_a_threshold_outside_zero_to_one_hundred_is_rejected(): void {
@@ -144,27 +121,6 @@ final class activity_config_test extends \advanced_testcase {
             \context_module::instance((int) $this->cm->id),
             '500'
         );
-    }
-
-    public function test_unknown_setting_names_are_not_stored(): void {
-        global $DB;
-
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, ['evaluation_mode' => 'sync']);
-
-        $this->assertFalse($DB->record_exists('plagiarism_dixeo_config', ['name' => 'evaluation_mode']));
-    }
-
-    public function test_a_row_tampered_with_directly_is_ignored(): void {
-        global $DB;
-
-        $DB->insert_record('plagiarism_dixeo_config', (object) [
-            'cm' => (int) $this->cm->id,
-            'name' => 'show_final_score',
-            'value' => '<script>alert(1)</script>',
-        ]);
-
-        $config = \plagiarism_plugin_dixeo::get_activity_config((int) $this->cm->id);
-        $this->assertSame('score', $config['show_final_score']);
     }
 
     public function test_activity_gating_requires_the_site_and_activity_switches(): void {
@@ -195,8 +151,9 @@ final class activity_config_test extends \advanced_testcase {
         $fresh = \plagiarism_plugin_dixeo::get_activity_config((int) $this->cm->id);
         $this->assertSame('80', $fresh['authorship_threshold']);
 
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, ['authorship_threshold' => '60']);
+        $config->set('plagiarism_dixeo', 'authorship_threshold', \context_module::instance((int) $this->cm->id), '60', false);
         $config->set('plagiarism_dixeo', 'authorship_threshold', \context_system::instance(), '90');
+        \plagiarism_plugin_dixeo::purge_activity_config_cache((int) $this->cm->id);
 
         $saved = \plagiarism_plugin_dixeo::get_activity_config((int) $this->cm->id);
         $this->assertSame('60', $saved['authorship_threshold']);

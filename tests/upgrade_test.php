@@ -46,6 +46,7 @@ final class upgrade_test extends \advanced_testcase {
         set_config('enable_mod_assign', '1', 'plagiarism_dixeo');
         set_config('quiz_total_time', '300', 'plagiarism_dixeo');
         set_config('show_initial_score', 'hide', 'plagiarism_dixeo');
+        $this->create_legacy_config_table();
 
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
@@ -68,12 +69,7 @@ final class upgrade_test extends \advanced_testcase {
         $this->assertFalse(get_config('plagiarism_dixeo', 'enable_mod_assign'));
         $this->assertFalse(get_config('plagiarism_dixeo', 'quiz_total_time'));
         $this->assertSame('hide', get_config('plagiarism_dixeo', 'show_initial_score'));
-        $this->assertFalse($DB->record_exists('plagiarism_dixeo_config', ['name' => 'use_dixeo']));
-        $this->assertTrue($DB->record_exists('plagiarism_dixeo_config', [
-            'cm' => (int) $assign->cmid,
-            'name' => 'enable_auto_grading',
-            'value' => '1',
-        ]));
+        $this->assertFalse($DB->get_manager()->table_exists('plagiarism_dixeo_config'));
     }
 
     /**
@@ -177,5 +173,135 @@ final class upgrade_test extends \advanced_testcase {
 
         $this->assertTrue($DB->record_exists('plagiarism_dixeo_presubmission_feedback', ['itemid' => $submissionid]));
         $this->assertTrue($DB->get_manager()->table_exists('plagiarism_dixeo_autograde'));
+    }
+
+    /**
+     * Legacy assignment rows become assignment values in the catalogue, unless one is already stored.
+     */
+    public function test_legacy_assignment_rows_become_catalogue_assignment_values(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+        require_once($CFG->libdir . '/upgradelib.php');
+        require_once($CFG->dirroot . '/plagiarism/dixeo/db/upgrade.php');
+        set_config('version', 2026111099, 'plagiarism_dixeo');
+        $this->create_legacy_config_table();
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $context = \context_module::instance((int) $assign->cmid);
+        $DB->delete_records('local_dixeo_setting', ['contextid' => $context->id]);
+        $config = \local_dixeo\external\service_factory::get_settings_config();
+        $config->set('plagiarism_dixeo', 'show_test_score', $context, 'scoreandfeedback', false);
+
+        $legacy = [
+            'authorship_threshold' => '40',
+            'show_initial_score' => 'hide',
+            'show_test_score' => 'hide',
+            'show_final_score' => 'everything',
+        ];
+        foreach ($legacy as $name => $value) {
+            $DB->insert_record('plagiarism_dixeo_config', (object) [
+                'cm' => (int) $assign->cmid,
+                'name' => $name,
+                'value' => $value,
+            ]);
+        }
+
+        xmldb_plagiarism_dixeo_upgrade(2026111099);
+
+        $this->assertSame('40', $this->stored_value($context, 'authorship_threshold'));
+        $this->assertSame('hide', $this->stored_value($context, 'show_initial_score'));
+        $this->assertSame('scoreandfeedback', $this->stored_value($context, 'show_test_score'));
+        $this->assertNull($this->stored_value($context, 'show_final_score'));
+        $this->assertFalse($DB->get_manager()->table_exists('plagiarism_dixeo_config'));
+    }
+
+    /**
+     * Legacy automatic grading is not copied, so no teacher is recorded for it.
+     */
+    public function test_legacy_automatic_grading_is_not_copied(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+        require_once($CFG->libdir . '/upgradelib.php');
+        require_once($CFG->dirroot . '/plagiarism/dixeo/db/upgrade.php');
+        set_config('version', 2026111099, 'plagiarism_dixeo');
+        $this->create_legacy_config_table();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+        $context = \context_module::instance((int) $assign->cmid);
+        $DB->delete_records('local_dixeo_setting', ['contextid' => $context->id]);
+        $DB->insert_record('plagiarism_dixeo_config', (object) [
+            'cm' => (int) $assign->cmid,
+            'name' => 'enable_auto_grading',
+            'value' => '1',
+        ]);
+
+        xmldb_plagiarism_dixeo_upgrade(2026111099);
+
+        $this->assertNull($this->stored_value($context, 'enable_auto_grading'));
+        $this->assertFalse($DB->record_exists('plagiarism_dixeo_autograde', ['cmid' => (int) $assign->cmid]));
+    }
+
+    /**
+     * Rows of a course module that no longer exists are dropped with the table.
+     */
+    public function test_legacy_rows_of_a_missing_module_are_ignored(): void {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+        require_once($CFG->libdir . '/upgradelib.php');
+        require_once($CFG->dirroot . '/plagiarism/dixeo/db/upgrade.php');
+        set_config('version', 2026111099, 'plagiarism_dixeo');
+        $this->create_legacy_config_table();
+        $before = $DB->count_records('local_dixeo_setting');
+        $DB->insert_record('plagiarism_dixeo_config', (object) [
+            'cm' => 987654,
+            'name' => 'authorship_threshold',
+            'value' => '40',
+        ]);
+
+        xmldb_plagiarism_dixeo_upgrade(2026111099);
+
+        $this->assertSame($before, $DB->count_records('local_dixeo_setting'));
+        $this->assertFalse($DB->get_manager()->table_exists('plagiarism_dixeo_config'));
+    }
+
+    /**
+     * Create the legacy per-assignment settings table as the 2026092501 step defined it.
+     */
+    private function create_legacy_config_table(): void {
+        global $DB;
+
+        $dbman = $DB->get_manager();
+        $table = new \xmldb_table('plagiarism_dixeo_config');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE);
+        $table->add_field('cm', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL);
+        $table->add_field('value', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL);
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('cm_name', XMLDB_KEY_UNIQUE, ['cm', 'name']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+    }
+
+    /**
+     * Value stored in the catalogue for an assignment, or null when it has none.
+     *
+     * @param \context_module $context Assignment context.
+     * @param string $name Catalogue key.
+     * @return string|null
+     */
+    private function stored_value(\context_module $context, string $name): ?string {
+        global $DB;
+
+        $value = $DB->get_field('local_dixeo_setting', 'value', [
+            'contextid' => $context->id,
+            'component' => 'plagiarism_dixeo',
+            'name' => $name,
+        ]);
+        return $value === false ? null : (string) $value;
     }
 }

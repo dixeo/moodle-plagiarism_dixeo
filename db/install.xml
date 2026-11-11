@@ -76,18 +76,6 @@
         <KEY NAME="user_component_itemid" TYPE="unique" FIELDS="userid, component, itemid"/>
       </KEYS>
     </TABLE>
-    <TABLE NAME="plagiarism_dixeo_config" COMMENT="Per-activity Dixeo settings, keyed by course module.">
-      <FIELDS>
-        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
-        <FIELD NAME="cm" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Course module id"/>
-        <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Setting name"/>
-        <FIELD NAME="value" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Setting value"/>
-      </FIELDS>
-      <KEYS>
-        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
-        <KEY NAME="cm_name" TYPE="unique" FIELDS="cm, name"/>
-      </KEYS>
-    </TABLE>
     <TABLE NAME="plagiarism_dixeo_autograde" COMMENT="Teacher who switched automatic grading on for an assignment; automatic grades are recorded against them.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>

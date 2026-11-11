@@ -186,7 +186,13 @@ final class panels_test extends \advanced_testcase {
 
     public function test_hiding_the_final_score_hides_the_panel_from_the_student_only(): void {
         $this->store_record();
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, ['show_final_score' => 'hide']);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'show_final_score',
+            \context_module::instance((int) $this->cm->id),
+            'hide',
+            false
+        );
 
         $this->assertSame('', $this->render_as($this->student));
         $this->assertStringContainsString('82.5', $this->render_as($this->teacher));
@@ -211,17 +217,25 @@ final class panels_test extends \advanced_testcase {
 
         $this->assertStringNotContainsString('Consistent with earlier work', $this->render_as($this->student));
 
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, [
-            'show_final_score' => 'scoreandfeedback',
-        ]);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'show_final_score',
+            \context_module::instance((int) $this->cm->id),
+            'scoreandfeedback',
+            false
+        );
         $this->assertStringContainsString('Consistent with earlier work', $this->render_as($this->student));
     }
 
     public function test_markup_in_a_model_explanation_is_escaped(): void {
         $this->store_record(['final_explanation' => '<script>alert(1)</script><b>bold</b>']);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $this->cm->id, [
-            'show_final_score' => 'scoreandfeedback',
-        ]);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'show_final_score',
+            \context_module::instance((int) $this->cm->id),
+            'scoreandfeedback',
+            false
+        );
 
         $html = $this->render_as($this->teacher);
 

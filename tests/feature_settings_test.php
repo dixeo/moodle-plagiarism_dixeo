@@ -104,7 +104,13 @@ final class feature_settings_test extends \advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
-        \plagiarism_plugin_dixeo::set_activity_config((int) $assign->cmid, ['enable_auto_grading' => '1']);
+        \local_dixeo\external\service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'enable_auto_grading',
+            \context_module::instance((int) $assign->cmid),
+            '1',
+            false
+        );
 
         $this->assertFalse(analysis_gate::wants_draft_grade((int) $assign->cmid));
 

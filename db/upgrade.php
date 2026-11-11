@@ -223,5 +223,41 @@ function xmldb_plagiarism_dixeo_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026111000, 'plagiarism', 'dixeo');
     }
 
+    if ($oldversion < 2026111100) {
+        $table = new xmldb_table('plagiarism_dixeo_config');
+        if ($dbman->table_exists($table)) {
+            \local_dixeo\settings\catalogue::reset();
+            $config = \local_dixeo\external\service_factory::get_settings_config();
+            // Automatic grading is not copied: it is switched on again by a teacher, who is then recorded.
+            $rs = $DB->get_recordset_sql(
+                "SELECT c.id, c.cm, c.name, c.value
+                   FROM {plagiarism_dixeo_config} c
+                   JOIN {course_modules} cm ON cm.id = c.cm
+                   JOIN {modules} m ON m.id = cm.module AND m.name = :modname
+                  WHERE c.name IN ('authorship_threshold', 'show_initial_score', 'show_test_score', 'show_final_score')",
+                ['modname' => 'assign']
+            );
+            foreach ($rs as $row) {
+                $context = \context_module::instance((int) $row->cm, IGNORE_MISSING);
+                if (!$context) {
+                    continue;
+                }
+                $source = $config->get('plagiarism_dixeo', $row->name, $context)->get_source();
+                if ($source === \local_dixeo\settings\resolver::LAYER_ACTIVITY) {
+                    continue;
+                }
+                try {
+                    $config->set('plagiarism_dixeo', $row->name, $context, (string) $row->value, false);
+                } catch (\coding_exception | \moodle_exception $e) {
+                    // A value the catalogue refuses is dropped, so the Dixeo default applies.
+                    continue;
+                }
+            }
+            $rs->close();
+            $dbman->drop_table($table);
+        }
+        upgrade_plugin_savepoint(true, 2026111100, 'plagiarism', 'dixeo');
+    }
+
     return true;
 }

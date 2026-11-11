@@ -49,11 +49,20 @@ class feature_settings {
     /** @var string Student disclosure text. Dixeo level only. */
     public const DISCLOSURE = 'student_disclosure';
 
-    /** @var string Confidence threshold. A missing assignment snapshot uses the Dixeo default. */
+    /** @var string Confidence threshold. Read at the assignment. */
     public const THRESHOLD = 'authorship_threshold';
 
-    /** @var string Automatic grade application. A missing assignment snapshot uses the Dixeo default. */
+    /** @var string Automatic grade application. Read at the assignment. */
     public const AUTO_GRADING = 'enable_auto_grading';
+
+    /** @var string Student visibility of the initial confidence score. Read at the assignment. */
+    public const SHOW_INITIAL = 'show_initial_score';
+
+    /** @var string Student visibility of the verification quiz score. Read at the assignment. */
+    public const SHOW_TEST = 'show_test_score';
+
+    /** @var string Student visibility of the final confidence score. Read at the assignment. */
+    public const SHOW_FINAL = 'show_final_score';
 
     /**
      * Effective catalogue value at $context.

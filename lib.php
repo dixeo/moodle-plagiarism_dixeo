@@ -34,9 +34,6 @@ require_once($CFG->dirroot . '/plagiarism/lib.php');
  * The class must exist because Moodle instantiates it whenever plagiarism is enabled.
  */
 class plagiarism_plugin_dixeo extends plagiarism_plugin {
-    /** @var string Per-activity settings table. */
-    public const CONFIG_TABLE = 'plagiarism_dixeo_config';
-
     /** @var string Score and explanation are withheld from the student. */
     public const VISIBILITY_HIDE = 'hide';
 
@@ -56,37 +53,16 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
     }
 
     /**
-     * Per-assignment snapshots and the values each one accepts.
+     * Assignment settings read at the module context, held for the request.
      *
-     * A missing row uses the Dixeo default. The module generator stores the Dixeo values
-     * when it creates an assignment, and the assignment modal can replace that copy.
-     * A later Dixeo change does not rewrite a stored copy.
-     *
-     * @return array<string, array{default: string, values?: string[], kind?: string}>
-     */
-    public static function get_activity_settings(): array {
-        $visibility = [self::VISIBILITY_HIDE, self::VISIBILITY_SCORE, self::VISIBILITY_SCOREANDFEEDBACK];
-
-        return [
-            'authorship_threshold' => ['default' => '75', 'kind' => 'threshold'],
-            'enable_auto_grading' => ['default' => '0', 'values' => ['0', '1']],
-            'show_initial_score' => ['default' => self::VISIBILITY_SCORE, 'values' => $visibility],
-            'show_test_score' => ['default' => self::VISIBILITY_SCORE, 'values' => $visibility],
-            'show_final_score' => ['default' => self::VISIBILITY_SCORE, 'values' => $visibility],
-        ];
-    }
-
-    /**
-     * Settings stored against a course module, with defaults filled in for anything unset.
-     *
-     * Results are held for the request because the grading table asks for them once per row.
+     * Each value is the assignment's stored value, or the Dixeo default when the assignment
+     * has none. Results are held for the request because the grading table asks for them
+     * once per row.
      *
      * @param int $cmid Course module id.
      * @return array<string, string> Setting name => value.
      */
     public static function get_activity_config(int $cmid): array {
-        global $DB;
-
         if ($cmid <= 0) {
             return [];
         }
@@ -98,79 +74,21 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
             return $config;
         }
 
-        $stored = $DB->get_records_menu(self::CONFIG_TABLE, ['cm' => $cmid], '', 'name, value');
         $modulecontext = \context_module::instance($cmid);
-        $catalogue = \local_dixeo\external\service_factory::get_settings_config();
-
+        $names = [
+            \plagiarism_dixeo\feature_settings::THRESHOLD,
+            \plagiarism_dixeo\feature_settings::AUTO_GRADING,
+            \plagiarism_dixeo\feature_settings::SHOW_INITIAL,
+            \plagiarism_dixeo\feature_settings::SHOW_TEST,
+            \plagiarism_dixeo\feature_settings::SHOW_FINAL,
+        ];
         $config = [];
-        foreach (self::get_activity_settings() as $name => $spec) {
-            $resolved = $catalogue->get('plagiarism_dixeo', $name, $modulecontext);
-            if ($resolved->get_source() === 'activity') {
-                $accepted = self::accept_activity_value($resolved->get_value(), $spec);
-                $config[$name] = $accepted ?? self::resolved_activity_default($name, $spec);
-                continue;
-            }
-            $fallback = self::resolved_activity_default($name, $spec);
-            $accepted = isset($stored[$name]) ? self::accept_activity_value((string) $stored[$name], $spec) : null;
-            $config[$name] = $accepted ?? $fallback;
+        foreach ($names as $name) {
+            $config[$name] = \plagiarism_dixeo\feature_settings::value($name, $modulecontext);
         }
         $cache->set($cachekey, $config);
 
         return $config;
-    }
-
-    /**
-     * Write settings for a course module.
-     *
-     * Names outside {@see self::get_activity_settings()} are ignored. A value outside the
-     * list that setting accepts is ignored, so it does not replace the Dixeo default.
-     *
-     * @param int $cmid Course module id.
-     * @param array $values Setting name => value.
-     */
-    public static function set_activity_config(int $cmid, array $values): void {
-        global $DB;
-
-        if ($cmid <= 0) {
-            return;
-        }
-
-        $existing = $DB->get_records(self::CONFIG_TABLE, ['cm' => $cmid], '', 'name, id');
-
-        foreach (self::get_activity_settings() as $name => $spec) {
-            if (!array_key_exists($name, $values)) {
-                continue;
-            }
-
-            $value = self::accept_activity_value((string) $values[$name], $spec);
-            if ($value === null) {
-                continue;
-            }
-            \local_dixeo\external\service_factory::get_settings_config()->set(
-                'plagiarism_dixeo',
-                $name,
-                \context_module::instance($cmid),
-                $value,
-                false
-            );
-
-            if (isset($existing[$name])) {
-                $DB->update_record(self::CONFIG_TABLE, (object) [
-                    'id' => $existing[$name]->id,
-                    'cm' => $cmid,
-                    'name' => $name,
-                    'value' => $value,
-                ]);
-            } else {
-                $DB->insert_record(self::CONFIG_TABLE, (object) [
-                    'cm' => $cmid,
-                    'name' => $name,
-                    'value' => $value,
-                ]);
-            }
-        }
-
-        self::purge_activity_config_cache($cmid);
     }
 
     /**
@@ -180,40 +98,6 @@ class plagiarism_plugin_dixeo extends plagiarism_plugin {
      */
     public static function purge_activity_config_cache(int $cmid): void {
         self::get_request_cache()->delete('config_' . $cmid);
-    }
-
-    /**
-     * Dixeo default for one assignment snapshot, or the shipped default when it is not usable.
-     *
-     * @param string $name Setting name.
-     * @param array $spec Entry from {@see self::get_activity_settings()}.
-     * @return string
-     */
-    private static function resolved_activity_default(string $name, array $spec): string {
-        $value = \plagiarism_dixeo\feature_settings::value($name, \context_system::instance());
-        return self::accept_activity_value($value, $spec) ?? $spec['default'];
-    }
-
-    /**
-     * Accept a stored snapshot, or null when it is outside the values the setting allows.
-     *
-     * @param string $value Candidate value.
-     * @param array $spec Entry from {@see self::get_activity_settings()}.
-     * @return string|null
-     */
-    private static function accept_activity_value(string $value, array $spec): ?string {
-        if (($spec['kind'] ?? '') === 'threshold') {
-            if (!preg_match('/^\d+$/', $value)) {
-                return null;
-            }
-            $threshold = (int) $value;
-            if ($threshold < 0 || $threshold > 100) {
-                return null;
-            }
-            return (string) $threshold;
-        }
-        $allowed = $spec['values'] ?? [];
-        return in_array($value, $allowed, true) ? $value : null;
     }
 
     /**
@@ -926,7 +810,6 @@ function plagiarism_dixeo_pre_course_module_delete($cm): void {
             ['component' => 'mod_assign', 'area' => 'submission', 'assignid' => (int) $cm->instance]
         );
     }
-    $DB->delete_records(plagiarism_plugin_dixeo::CONFIG_TABLE, ['cm' => $cmid]);
     \plagiarism_dixeo\grading\autograde_enabler::clear($cmid);
     plagiarism_plugin_dixeo::purge_activity_config_cache($cmid);
 }
