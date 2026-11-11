@@ -24,7 +24,9 @@
 
 namespace plagiarism_dixeo\task;
 
+use local_dixeo\dto\job_quota;
 use local_dixeo\exception\consent_required_exception;
+use local_dixeo\exception\job_quota_exceeded_exception;
 use local_dixeo\external\service_factory;
 use local_dixeo\service\assign_ux_service;
 use plagiarism_dixeo\authorship\author_storage;
@@ -33,6 +35,7 @@ use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 use plagiarism_dixeo\automation\analysis_gate;
 use plagiarism_dixeo\event\analysis_requested;
 use plagiarism_dixeo\event\authorship_checked;
+use plagiarism_dixeo\external\assign_access;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
 
 /**
@@ -41,6 +44,14 @@ use plagiarism_dixeo\feedback\presubmission_feedback_storage;
  * Failures are rethrown so Moodle retries the task with its usual backoff; the analysis is
  * rerun from scratch on retry rather than resumed, because a partial result would be
  * misleading to both student and teacher.
+ *
+ * On the upload trigger every job counts toward the student's hourly job quota for the
+ * assignment ({@see assign_access::student_job_quota()}). The task runs as the student, so it
+ * shares that budget with the student's manual Analyze and authorship checks. Once the quota is
+ * used up the task sends nothing and is not retried. Manual Analyze on an unchanged submission
+ * returns the stored feedback, and a settled authorship check returns the stored record, without
+ * a job; a manual Analyze of a newer version is refused until the quota frees up. On the submit
+ * trigger the task runs once per submission and sends without a quota.
  */
 class analyze_submission extends \core\task\adhoc_task {
     /** @var string Component the stored analysis belongs to. */
@@ -106,16 +117,19 @@ class analyze_submission extends \core\task\adhoc_task {
             'other' => ['itemid' => $submissionid],
         ])->trigger();
 
+        $bounded = analysis_gate::get_trigger() === analysis_gate::TRIGGER_UPLOAD;
         $service = service_factory::get_assign_ux_service(new authorship_persistence_adapter());
 
-        // Terms withdrawn since queueing: nothing is sent and a retry would not help.
+        // Terms withdrawn or the job quota used up since queueing: a retry would not help.
         try {
             if (\plagiarism_plugin_dixeo::is_enabled_for_activity($cmid)) {
-                $this->store_review($service, $context, $submission, $courseid, $cmid, $userid);
+                $this->store_review($service, $context, $submission, $courseid, $cmid, $userid, $bounded);
             }
-            $this->store_authorship($service, $context, $submission, $courseid, $cmid, $userid);
+            $this->store_authorship($service, $context, $submission, $courseid, $cmid, $userid, $bounded);
         } catch (consent_required_exception $e) {
             mtrace('plagiarism_dixeo: terms not current, nothing sent.');
+        } catch (job_quota_exceeded_exception $e) {
+            mtrace('plagiarism_dixeo: job limit reached for this student and assignment, skipping.');
         }
     }
 
@@ -128,7 +142,9 @@ class analyze_submission extends \core\task\adhoc_task {
      * @param int $courseid Course id.
      * @param int $cmid Assignment course module id.
      * @param int $userid Student user id.
+     * @param bool $bounded Whether the job counts toward the student's job quota for the assignment.
      * @throws \moodle_exception When the review does not complete.
+     * @throws job_quota_exceeded_exception When the student's job quota for the assignment is used up.
      */
     private function store_review(
         assign_ux_service $service,
@@ -136,11 +152,17 @@ class analyze_submission extends \core\task\adhoc_task {
         \stdClass $submission,
         int $courseid,
         int $cmid,
-        int $userid
+        int $userid,
+        bool $bounded = false
     ): void {
         global $DB;
 
-        $operation = $service->submit_review_and_wait($courseid, $cmid, $userid);
+        $operation = $service->submit_review_and_wait(
+            $courseid,
+            $cmid,
+            $userid,
+            $bounded ? assign_access::student_job_quota() : null
+        );
         if (!$operation->completed) {
             throw new \moodle_exception('automation_review_incomplete', 'plagiarism_dixeo');
         }
@@ -175,7 +197,9 @@ class analyze_submission extends \core\task\adhoc_task {
      * @param int $courseid Course id.
      * @param int $cmid Assignment course module id.
      * @param int $userid Student user id.
+     * @param bool $bounded Whether the jobs count toward the student's job quota for the assignment.
      * @throws \moodle_exception When the authorship check does not complete.
+     * @throws job_quota_exceeded_exception When the student's job quota for the assignment is used up.
      */
     private function store_authorship(
         assign_ux_service $service,
@@ -183,7 +207,8 @@ class analyze_submission extends \core\task\adhoc_task {
         \stdClass $submission,
         int $courseid,
         int $cmid,
-        int $userid
+        int $userid,
+        bool $bounded = false
     ): void {
         global $DB;
 
@@ -205,16 +230,23 @@ class analyze_submission extends \core\task\adhoc_task {
                 return;
             }
 
-            $confidence = $this->run_authorship_step($service, $courseid, $cmid, $userid, assign_ux_service::MODE_CONFIDENCE);
+            // The confidence step reserves room for the quiz, as check_authorship does.
+            $quizon = \plagiarism_dixeo\feature_settings::verification_quiz_on($context);
+            $confidence = $this->run_authorship_step(
+                $service,
+                $courseid,
+                $cmid,
+                $userid,
+                assign_ux_service::MODE_CONFIDENCE,
+                [],
+                $bounded ? assign_access::student_job_quota($quizon ? 2 : 1) : null
+            );
             $score = (float) $confidence['confidence'];
 
             $quizdata = null;
             $config = \plagiarism_plugin_dixeo::get_activity_config($cmid);
             $threshold = (float) $config[\plagiarism_dixeo\feature_settings::THRESHOLD];
-            if (
-                \plagiarism_dixeo\feature_settings::verification_quiz_on($context)
-                && authorship::is_quiz_required($score, $threshold)
-            ) {
+            if ($quizon && authorship::is_quiz_required($score, $threshold)) {
                 $counts = authorship::get_question_counts();
                 $quiz = $this->run_authorship_step(
                     $service,
@@ -227,7 +259,8 @@ class analyze_submission extends \core\task\adhoc_task {
                         'trueFalseCount' => $counts['true_false'],
                         'multipleChoiceCount' => $counts['multiple_choice'],
                         'openCount' => $counts['open'],
-                    ]
+                    ],
+                    $bounded ? assign_access::student_job_quota() : null
                 );
                 $quizdata = ['questions' => $quiz['questions']];
             }
@@ -265,8 +298,10 @@ class analyze_submission extends \core\task\adhoc_task {
      * @param int $userid Student user id.
      * @param string $mode Authorship mode.
      * @param array $options Mode-specific options.
+     * @param job_quota|null $quota Limit on the student's recent jobs for this assignment, or null for none.
      * @return array Mapped result.
      * @throws \moodle_exception When the step does not complete.
+     * @throws job_quota_exceeded_exception When the quota is used up.
      */
     private function run_authorship_step(
         assign_ux_service $service,
@@ -274,9 +309,10 @@ class analyze_submission extends \core\task\adhoc_task {
         int $cmid,
         int $userid,
         string $mode,
-        array $options = []
+        array $options = [],
+        ?job_quota $quota = null
     ): array {
-        $operation = $service->submit_authorship_and_wait($courseid, $cmid, $userid, $mode, $options);
+        $operation = $service->submit_authorship_and_wait($courseid, $cmid, $userid, $mode, $options, $quota);
         if (!$operation->completed) {
             throw new \moodle_exception('automation_authorship_incomplete', 'plagiarism_dixeo', '', $mode);
         }

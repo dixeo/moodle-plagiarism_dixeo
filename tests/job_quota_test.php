@@ -39,7 +39,10 @@ use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 use plagiarism_dixeo\external\assign_access;
 use plagiarism_dixeo\external\check_authorship;
 use plagiarism_dixeo\external\mod_assign_pre_submission;
+use plagiarism_dixeo\authorship\author_storage;
+use plagiarism_dixeo\automation\analysis_gate;
 use plagiarism_dixeo\feedback\presubmission_feedback_storage;
+use plagiarism_dixeo\task\analyze_submission;
 
 /**
  * A student cannot drain the site's Dixeo credits from one assignment.
@@ -47,6 +50,7 @@ use plagiarism_dixeo\feedback\presubmission_feedback_storage;
  * @covers \plagiarism_dixeo\external\assign_access::student_job_quota
  * @covers \plagiarism_dixeo\external\mod_assign_pre_submission
  * @covers \plagiarism_dixeo\external\check_authorship
+ * @covers \plagiarism_dixeo\task\analyze_submission
  */
 final class job_quota_test extends \advanced_testcase {
     /** @var \stdClass Course. */
@@ -115,8 +119,8 @@ final class job_quota_test extends \advanced_testcase {
      * Use the real assign and job services over a mocked Dixeo API.
      *
      * Every POST is recorded and answered with a new job id. Polls complete at once: the
-     * confidence step with a score that requires the verification quiz, the quiz step with
-     * one question.
+     * review with coaching feedback, the confidence step with a score that requires the
+     * verification quiz, the quiz step with one question.
      */
     private function use_mocked_api(): void {
         $client = $this->createMock(client::class);
@@ -130,6 +134,9 @@ final class job_quota_test extends \advanced_testcase {
             ->getMock();
         $poller->method('poll')->willReturnCallback(function (string $jobid): operation_result {
             $endpoint = end($this->posted);
+            if ($endpoint === assign_ux_service::ENDPOINT_REVIEW) {
+                return operation_result::completed($jobid, ['feedback_html' => '<p>Automatic coaching.</p>']);
+            }
             if ($endpoint === assign_ux_service::ENDPOINT_AUTHORSHIP_QUIZ) {
                 return operation_result::completed($jobid, [
                     'questions' => [['id' => 'q1', 'type' => 'true_false', 'text' => 'One?', 'correct' => 'true']],
@@ -290,5 +297,104 @@ final class job_quota_test extends \advanced_testcase {
             [assign_ux_service::ENDPOINT_AUTHORSHIP_CONFIDENCE, assign_ux_service::ENDPOINT_AUTHORSHIP_QUIZ],
             $this->posted
         );
+    }
+
+    public function test_upload_analysis_sends_nothing_once_the_limit_is_reached(): void {
+        set_config('assign_trigger', analysis_gate::TRIGGER_UPLOAD, 'plagiarism_dixeo');
+        $this->register_earlier_jobs(assign_access::STUDENT_JOBS_PER_HOUR);
+        $this->use_mocked_api();
+
+        $this->run_analysis_task();
+
+        $this->assertSame([], $this->posted);
+        $this->assertFalse($this->has_stored_feedback());
+        $this->assertNull(author_storage::get_record_by_context(
+            (int) $this->student->id,
+            'mod_assign',
+            'submission',
+            (int) $this->submission->id
+        ));
+    }
+
+    public function test_submit_analysis_sends_without_a_quota(): void {
+        set_config('assign_trigger', analysis_gate::TRIGGER_SUBMIT, 'plagiarism_dixeo');
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->expects($this->once())
+            ->method('submit_review_and_wait')
+            ->with($this->anything(), $this->anything(), $this->anything(), $this->isNull())
+            ->willReturn(operation_result::completed('job-review', []));
+        $mock->method('map_review_result')->willReturn(['feedback_html' => '<p>Coaching.</p>']);
+        $mock->expects($this->once())
+            ->method('submit_authorship_and_wait')
+            ->with(
+                $this->anything(),
+                $this->anything(),
+                $this->anything(),
+                assign_ux_service::MODE_CONFIDENCE,
+                $this->anything(),
+                $this->isNull()
+            )
+            ->willReturn(operation_result::completed('job-confidence', []));
+        $mock->method('map_authorship_result')->willReturn(['confidence' => 90.0, 'explanation' => 'Consistent.']);
+        service_factory::set_test_assign_ux_service($mock);
+
+        $this->run_analysis_task();
+
+        $this->assertTrue($this->has_stored_feedback());
+    }
+
+    public function test_manual_analyze_after_an_upload_analysis_shares_the_limit(): void {
+        global $DB;
+
+        set_config('assign_trigger', analysis_gate::TRIGGER_UPLOAD, 'plagiarism_dixeo');
+        $this->use_mocked_api();
+        $this->run_analysis_task();
+        $this->assertSame(
+            [assign_ux_service::ENDPOINT_REVIEW, assign_ux_service::ENDPOINT_AUTHORSHIP_CONFIDENCE],
+            $this->posted
+        );
+
+        $result = mod_assign_pre_submission::execute((int) $this->assign->cmid);
+        $this->assertSame('completed', $result['status']);
+        $this->assertSame('', $result['jobid']);
+        $this->assertStringContainsString('Automatic coaching.', $result['html']);
+        $this->assertCount(2, $this->posted);
+
+        $this->register_earlier_jobs(assign_access::STUDENT_JOBS_PER_HOUR - 2);
+        $DB->set_field('assign_submission', 'timemodified', (int) $this->submission->timemodified + 60, [
+            'id' => (int) $this->submission->id,
+        ]);
+        $this->expectException(job_quota_exceeded_exception::class);
+        mod_assign_pre_submission::execute((int) $this->assign->cmid);
+    }
+
+    /**
+     * Run the automatic analysis task for the student's submission, as the student.
+     */
+    private function run_analysis_task(): void {
+        $task = new analyze_submission();
+        $task->set_custom_data([
+            'cmid' => (int) $this->assign->cmid,
+            'courseid' => (int) $this->course->id,
+            'userid' => (int) $this->student->id,
+            'submissionid' => (int) $this->submission->id,
+        ]);
+        ob_start();
+        try {
+            $task->execute();
+        } finally {
+            ob_end_clean();
+        }
+    }
+
+    /**
+     * Whether coaching feedback is stored for the student's submission.
+     *
+     * @return bool
+     */
+    private function has_stored_feedback(): bool {
+        global $DB;
+
+        return $DB->record_exists(presubmission_feedback_storage::TABLE, ['itemid' => (int) $this->submission->id]);
     }
 }
