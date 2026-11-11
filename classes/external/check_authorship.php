@@ -38,6 +38,7 @@ use plagiarism_dixeo\authorship\author_storage;
 use plagiarism_dixeo\authorship\authorship;
 use plagiarism_dixeo\authorship\authorship_persistence_adapter;
 use plagiarism_dixeo\event\authorship_checked;
+use plagiarism_dixeo\feature_settings;
 
 
 /**
@@ -89,9 +90,11 @@ class check_authorship extends external_api {
         $cm = get_coursemodule_from_id('assign', $params['id'], 0, false, MUST_EXIST);
         $courseid = (int) $cm->course;
 
+        $threshold = (float) \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id)[feature_settings::THRESHOLD];
+
         $modulecontext = \context_module::instance((int) $cm->id);
         if (!authorship::is_enabled($modulecontext)) {
-            return self::result_payload(100.0, 0, '', 'completed', $courseid);
+            return self::result_payload(100.0, 0, '', 'completed', $courseid, $threshold);
         }
 
         try {
@@ -104,7 +107,7 @@ class check_authorship extends external_api {
             $lock = authorship::acquire_lock('authorship_submission_' . $itemid);
             if (!$lock) {
                 $msg = get_string('assign_ux_result_missing', 'local_dixeo');
-                return self::result_payload(50.0, 0, $msg, 'failed', $courseid);
+                return self::result_payload(50.0, 0, $msg, 'failed', $courseid, $threshold);
             }
             try {
                 $existing = $itemid > 0
@@ -116,7 +119,8 @@ class check_authorship extends external_api {
                         (int) $existing->id,
                         '',
                         'completed',
-                        $courseid
+                        $courseid,
+                        $threshold
                     );
                 }
                 // A finished result is final for this submission: it is returned, never re-run.
@@ -127,22 +131,21 @@ class check_authorship extends external_api {
                         '',
                         'completed',
                         $courseid,
-                        '',
-                        (float) \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id)['authorship_threshold']
+                        $threshold
                     );
                 }
 
-                return self::run_check($service, $cm, $courseid, $itemid);
+                return self::run_check($service, $cm, $courseid, $itemid, $threshold);
             } finally {
                 $lock->release();
             }
         } catch (\required_capability_exception | \require_login_exception | consent_required_exception $e) {
             throw $e;
         } catch (job_quota_exceeded_exception $e) {
-            return self::result_payload(50.0, 0, $e->getMessage(), 'failed', $courseid);
+            return self::result_payload(50.0, 0, $e->getMessage(), 'failed', $courseid, $threshold);
         } catch (\Throwable $e) {
             $safe = response_factory::safe_message($e);
-            return self::result_payload(50.0, 0, $safe, 'failed', $courseid);
+            return self::result_payload(50.0, 0, $safe, 'failed', $courseid, $threshold);
         }
     }
 
@@ -157,10 +160,17 @@ class check_authorship extends external_api {
      * @param \stdClass $cm Assignment course module.
      * @param int $courseid Course id.
      * @param int $itemid Submission id, or 0 when there is none to store against.
+     * @param float $threshold Assignment confidence threshold.
      * @return array
      * @throws job_quota_exceeded_exception When the student's job quota for the assignment is used up.
      */
-    private static function run_check(assign_ux_service $service, \stdClass $cm, int $courseid, int $itemid): array {
+    private static function run_check(
+        assign_ux_service $service,
+        \stdClass $cm,
+        int $courseid,
+        int $itemid,
+        float $threshold
+    ): array {
         global $USER;
 
         $quizon = \plagiarism_dixeo\feature_settings::verification_quiz_on(\context_module::instance((int) $cm->id));
@@ -173,12 +183,12 @@ class check_authorship extends external_api {
         );
         if (!$confidenceop->completed) {
             $msg = get_string('assign_ux_result_missing', 'local_dixeo');
-            return self::result_payload(50.0, 0, $msg, 'failed', $courseid, $confidenceop->jobid);
+            return self::result_payload(50.0, 0, $msg, 'failed', $courseid, $threshold, $confidenceop->jobid);
         }
 
         $mapped = $service->map_authorship_result(assign_ux_service::MODE_CONFIDENCE, $confidenceop->result);
         if (isset($mapped['error'])) {
-            return self::result_payload(50.0, 0, $mapped['error'], 'failed', $courseid, $confidenceop->jobid);
+            return self::result_payload(50.0, 0, $mapped['error'], 'failed', $courseid, $threshold, $confidenceop->jobid);
         }
 
         $score = (float) $mapped['confidence'];
@@ -186,8 +196,7 @@ class check_authorship extends external_api {
         $quizdata = null;
         $lastjobid = $confidenceop->jobid;
 
-        $activity = \plagiarism_plugin_dixeo::get_activity_config((int) $cm->id);
-        if ($quizon && authorship::is_quiz_required($score, (float) $activity['authorship_threshold'])) {
+        if ($quizon && authorship::is_quiz_required($score, $threshold)) {
             $counts = authorship::get_question_counts();
             $quizop = $service->submit_authorship_and_wait(
                 $courseid,
@@ -204,12 +213,12 @@ class check_authorship extends external_api {
             );
             if (!$quizop->completed) {
                 $msg = get_string('assign_ux_result_missing', 'local_dixeo');
-                return self::result_payload($score, 0, $msg, 'failed', $courseid, $quizop->jobid);
+                return self::result_payload($score, 0, $msg, 'failed', $courseid, $threshold, $quizop->jobid);
             }
 
             $quizmapped = $service->map_authorship_result(assign_ux_service::MODE_QUIZ, $quizop->result);
             if (isset($quizmapped['error'])) {
-                return self::result_payload($score, 0, $quizmapped['error'], 'failed', $courseid, $quizop->jobid);
+                return self::result_payload($score, 0, $quizmapped['error'], 'failed', $courseid, $threshold, $quizop->jobid);
             }
 
             $quizdata = ['questions' => $quizmapped['questions']];
@@ -243,8 +252,8 @@ class check_authorship extends external_api {
             '',
             'completed',
             $courseid,
-            $lastjobid,
-            (float) $activity['authorship_threshold']
+            $threshold,
+            $lastjobid
         );
     }
 
@@ -256,8 +265,8 @@ class check_authorship extends external_api {
      * @param string $errormessage Error message.
      * @param string $status Status.
      * @param int $courseid Course id.
+     * @param float $threshold Assignment confidence threshold.
      * @param string $jobid Job id.
-     * @param float|null $threshold Assignment threshold, or null for the Dixeo default.
      * @return array
      */
     protected static function result_payload(
@@ -266,12 +275,12 @@ class check_authorship extends external_api {
         string $errormessage,
         string $status,
         int $courseid,
-        string $jobid = '',
-        ?float $threshold = null
+        float $threshold,
+        string $jobid = ''
     ): array {
         return [
             'score' => $score,
-            'threshold' => $threshold ?? (float) authorship::get_confidence_threshold(),
+            'threshold' => $threshold,
             'record_id' => $recordid,
             'jobid' => $jobid,
             'status' => $status,

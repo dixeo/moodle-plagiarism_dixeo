@@ -210,7 +210,7 @@ class analyze_submission extends \core\task\adhoc_task {
 
             $quizdata = null;
             $config = \plagiarism_plugin_dixeo::get_activity_config($cmid);
-            $threshold = (float) $config['authorship_threshold'];
+            $threshold = (float) $config[\plagiarism_dixeo\feature_settings::THRESHOLD];
             if (
                 \plagiarism_dixeo\feature_settings::verification_quiz_on($context)
                 && authorship::is_quiz_required($score, $threshold)

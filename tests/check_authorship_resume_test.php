@@ -181,4 +181,53 @@ final class check_authorship_resume_test extends \advanced_testcase {
         $this->assertSame(author_storage::STATUS_COMPLETE, $stored->status);
         $this->assertSame(64.0, (float) $stored->final_confidence);
     }
+
+    public function test_a_settled_result_carries_the_assignment_threshold(): void {
+        $seed = $this->seed_open_quiz(author_storage::STATUS_COMPLETE);
+        $this->use_assignment_threshold((int) $seed['assign']->cmid, '40', '80');
+        $this->setUser($seed['student']);
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->expects($this->never())->method('submit_authorship_and_wait');
+        service_factory::set_test_assign_ux_service($mock);
+
+        $result = check_authorship::execute('mod_assign', 'submission', (int) $seed['assign']->cmid);
+
+        $this->assertSame('completed', $result['status']);
+        $this->assertSame(40.0, $result['threshold']);
+    }
+
+    public function test_a_failed_check_carries_the_assignment_threshold(): void {
+        $seed = $this->seed_open_quiz(author_storage::STATUS_FAILED);
+        $this->use_assignment_threshold((int) $seed['assign']->cmid, '40', '80');
+        $this->setUser($seed['student']);
+        $mock = $this->createMock(assign_ux_service::class);
+        $mock->expects($this->once())
+            ->method('submit_authorship_and_wait')
+            ->willReturn(\local_dixeo\dto\operation_result::failed('Timed out.'));
+        service_factory::set_test_assign_ux_service($mock);
+
+        $result = check_authorship::execute('mod_assign', 'submission', (int) $seed['assign']->cmid);
+
+        $this->assertSame('failed', $result['status']);
+        $this->assertSame(40.0, $result['threshold']);
+    }
+
+    /**
+     * Store an assignment threshold that differs from the Dixeo default.
+     *
+     * @param int $cmid Assignment course module id.
+     * @param string $assignment Assignment threshold.
+     * @param string $dixeo Dixeo default threshold.
+     */
+    private function use_assignment_threshold(int $cmid, string $assignment, string $dixeo): void {
+        set_config('authorship_threshold', $dixeo, 'plagiarism_dixeo');
+        service_factory::get_settings_config()->set(
+            'plagiarism_dixeo',
+            'authorship_threshold',
+            \context_module::instance($cmid),
+            $assignment,
+            false
+        );
+        \plagiarism_plugin_dixeo::purge_activity_config_cache($cmid);
+    }
 }

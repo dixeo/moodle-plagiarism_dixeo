@@ -35,9 +35,6 @@ class authorship {
     /** Confidence scale: maximum (100 = 100% human-written). */
     public const CONFIDENCE_MAX = 100;
 
-    /** Default confidence threshold (75%). Below this, quiz is required. */
-    public const DEFAULT_CONFIDENCE_THRESHOLD = 75.0;
-
     /** Question type: true/false. */
     public const QUESTION_TYPE_TRUE_FALSE = 'true_false';
 
@@ -69,22 +66,6 @@ class authorship {
     }
 
     /**
-     * Dixeo-level confidence threshold (0–100) below which a quiz is required.
-     *
-     * An assignment uses its own snapshot. Pass that value to {@see self::is_quiz_required()}.
-     *
-     * @return float
-     */
-    public static function get_confidence_threshold(): float {
-        $value = \plagiarism_dixeo\feature_settings::value(
-            \plagiarism_dixeo\feature_settings::THRESHOLD,
-            \context_system::instance()
-        );
-        $int = $value === '' ? (int) self::DEFAULT_CONFIDENCE_THRESHOLD : (int) $value;
-        return (float) max(self::CONFIDENCE_MIN, min(self::CONFIDENCE_MAX, $int));
-    }
-
-    /**
      * Question counts per type.
      *
      * These are fixed so the quiz shape can be adjusted in code without a setting.
@@ -102,21 +83,13 @@ class authorship {
     /**
      * Whether the given confidence score requires a quiz.
      *
-     * Threshold 0 = always require quiz, 100 = never require one. Between those bounds a quiz is
-     * required when the score is below the threshold.
+     * A quiz is required when the score is below the threshold, so 0 never requires one.
      *
      * @param float $score Confidence score (0–100).
-     * @param float|null $threshold Optional threshold; uses config default if null.
+     * @param float $threshold Assignment confidence threshold (0–100).
      * @return bool
      */
-    public static function is_quiz_required(float $score, ?float $threshold = null): bool {
-        $threshold = $threshold ?? self::get_confidence_threshold();
-        if ($threshold <= self::CONFIDENCE_MIN) {
-            return true;
-        }
-        if ($threshold >= self::CONFIDENCE_MAX) {
-            return false;
-        }
+    public static function is_quiz_required(float $score, float $threshold): bool {
         return $score < $threshold;
     }
 
