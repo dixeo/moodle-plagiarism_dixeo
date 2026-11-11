@@ -120,4 +120,40 @@ final class feature_settings_test extends \advanced_testcase {
         $this->expectExceptionMessage(get_string('grading_not_enabled', 'plagiarism_dixeo'));
         assign_access::require_teacher_grade((int) $assign->cmid);
     }
+
+    /**
+     * Automatic grading exists only on the assignment, and the plugin reads it only there.
+     */
+    public function test_automatic_grading_is_read_only_at_the_assignment(): void {
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id]);
+
+        $this->assertSame(['activity'], $this->definition(feature_settings::AUTO_GRADING)->get_levels());
+        $this->assertSame([], \plagiarism_plugin_dixeo::get_activity_config(0));
+        $config = \plagiarism_plugin_dixeo::get_activity_config((int) $assign->cmid);
+        $this->assertSame('0', $config[feature_settings::AUTO_GRADING]);
+
+        $this->expectException(\coding_exception::class);
+        service_factory::get_settings_config()->get(
+            feature_settings::COMPONENT,
+            feature_settings::AUTO_GRADING,
+            \context_system::instance()
+        );
+    }
+
+    /**
+     * Installed catalogue definition of one plagiarism setting.
+     *
+     * @param string $name Catalogue key.
+     * @return \local_dixeo\settings\definition
+     */
+    private function definition(string $name): \local_dixeo\settings\definition {
+        foreach (\local_dixeo\settings\catalogue::load() as $definition) {
+            if ($definition->get_component() === feature_settings::COMPONENT && $definition->get_key() === $name) {
+                return $definition;
+            }
+        }
+        $this->fail('Missing catalogue definition ' . $name);
+    }
 }

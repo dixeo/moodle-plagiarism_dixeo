@@ -689,7 +689,7 @@ function plagiarism_dixeo_dixeo_settings(): array {
             'component' => 'plagiarism_dixeo',
             'type' => 'bool',
             'default' => '0',
-            'levels' => ['dixeo', 'activity'],
+            'levels' => ['activity'],
             'feature' => 'assignment',
             'sub' => 'grading',
             'plugingroup' => 'plagiarism_dixeo',

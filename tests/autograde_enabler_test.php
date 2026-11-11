@@ -92,13 +92,6 @@ final class autograde_enabler_test extends \advanced_testcase {
     public function test_removing_the_assignment_value_clears_the_record(): void {
         global $DB;
 
-        service_factory::get_settings_config()->set(
-            'plagiarism_dixeo',
-            'enable_auto_grading',
-            \context_system::instance(),
-            '1',
-            false
-        );
         $this->setUser($this->teacher);
         $this->set_activity_value('1');
         $this->assertSame((int) $this->teacher->id, autograde_enabler::get_userid((int) $this->assign->cmid));
@@ -116,21 +109,34 @@ final class autograde_enabler_test extends \advanced_testcase {
         $this->assertSame(0, autograde_enabler::get_userid((int) $this->assign->cmid));
     }
 
-    public function test_copying_the_dixeo_default_records_nobody(): void {
-        service_factory::get_settings_config()->set(
-            'plagiarism_dixeo',
-            'enable_auto_grading',
-            \context_system::instance(),
-            '1',
-            false
-        );
+    public function test_copying_the_dixeo_defaults_stores_no_automatic_grading(): void {
+        global $DB;
+
         $this->setUser($this->teacher);
+        $DB->delete_records('local_dixeo_setting', ['contextid' => $this->context->id]);
 
         service_factory::get_settings_config()->copy_activity_defaults($this->context);
 
-        $this->assertSame('1', service_factory::get_settings_config()
+        $this->assertFalse($DB->record_exists('local_dixeo_setting', [
+            'contextid' => $this->context->id,
+            'component' => 'plagiarism_dixeo',
+            'name' => 'enable_auto_grading',
+        ]));
+        $this->assertSame('0', service_factory::get_settings_config()
             ->get('plagiarism_dixeo', 'enable_auto_grading', $this->context)->get_value());
         $this->assertSame(0, autograde_enabler::get_userid((int) $this->assign->cmid));
+    }
+
+    public function test_the_first_teacher_write_on_a_generated_assignment_is_recorded(): void {
+        global $DB;
+
+        $DB->delete_records('local_dixeo_setting', ['contextid' => $this->context->id]);
+        service_factory::get_settings_config()->copy_activity_defaults($this->context);
+        $this->setUser($this->teacher);
+
+        $this->set_activity_value('1');
+
+        $this->assertSame((int) $this->teacher->id, autograde_enabler::get_userid((int) $this->assign->cmid));
     }
 
     public function test_a_logged_in_as_write_records_nobody(): void {

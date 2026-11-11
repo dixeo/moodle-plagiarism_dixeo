@@ -45,7 +45,6 @@ final class module_generator_defaults_test extends \advanced_testcase {
         $config->set('plagiarism_dixeo', 'authorship_threshold', $system, '80');
         $config->set('plagiarism_dixeo', 'show_final_score', $system, 'hide');
         $config->set('plagiarism_dixeo', 'grading_enabled', $system, '1');
-        $config->set('plagiarism_dixeo', 'enable_auto_grading', $system, '1');
         $config->set('plagiarism_dixeo', 'assign_trigger', $system, 'upload');
 
         $course = $this->getDataGenerator()->create_course();
@@ -63,7 +62,7 @@ final class module_generator_defaults_test extends \advanced_testcase {
         $this->assertSame('hide', $this->stored($modulecontext->id, 'show_final_score'));
         $this->assertSame('score', $this->stored($modulecontext->id, 'show_initial_score'));
         $this->assertSame('1', $this->stored($modulecontext->id, 'grading_enabled'));
-        $this->assertSame('1', $this->stored($modulecontext->id, 'enable_auto_grading'));
+        $this->assertFalse($this->stored($modulecontext->id, 'enable_auto_grading'));
         $this->assertSame('0', $this->stored($modulecontext->id, 'authorship_enabled'));
         $this->assertFalse($this->stored($modulecontext->id, 'assign_trigger'));
         $this->assertFalse($this->stored($modulecontext->id, 'evaluation_mode'));
@@ -73,7 +72,8 @@ final class module_generator_defaults_test extends \advanced_testcase {
         $this->assertSame('80', $activity['authorship_threshold']);
         $this->assertSame('hide', $activity['show_final_score']);
         $this->assertSame('score', $activity['show_initial_score']);
-        $this->assertSame('1', $activity['enable_auto_grading']);
+        $this->assertSame('0', $activity['enable_auto_grading']);
+        $this->assertSame(0, \plagiarism_dixeo\grading\autograde_enabler::get_userid($cmid));
         $this->assertTrue(feature_settings::assignment_feedback_on($modulecontext));
         $this->assertTrue(feature_settings::grading_on($modulecontext));
         $this->assertSame('activity', $config->get('plagiarism_dixeo', 'authorship_threshold', $modulecontext)->get_source());
