@@ -283,4 +283,31 @@ final class privacy_provider_test extends \core_privacy\tests\provider_testcase 
 
         $this->assertSame(0, autograde_enabler::get_userid((int) $this->context->instanceid));
     }
+
+    public function test_metadata_declares_source_fields_and_every_transferred_item(): void {
+        $items = [];
+        foreach (provider::get_metadata(new collection('plagiarism_dixeo'))->get_collection() as $item) {
+            $items[$item->get_name()] = $item;
+        }
+
+        foreach ([author_storage::TABLE, presubmission_feedback_storage::TABLE, grade_feedback_storage::TABLE] as $table) {
+            $fields = $items[$table]->get_privacy_fields();
+            $this->assertArrayHasKey('source_timemodified', $fields, $table);
+            $this->assertArrayHasKey('source_attempt', $fields, $table);
+        }
+        $sent = array_keys($items['dixeo']->get_privacy_fields());
+        $expected = [
+            'submission_content',
+            'submission_files',
+            'quiz_questions',
+            'quiz_responses',
+            'initial_confidence',
+            'activity_context',
+            'grading_criteria',
+        ];
+        foreach ($expected as $field) {
+            $this->assertContains($field, $sent);
+        }
+        $this->assertStringContainsString('local_dixeo', get_string('privacy:metadata:dixeo', 'plagiarism_dixeo'));
+    }
 }
