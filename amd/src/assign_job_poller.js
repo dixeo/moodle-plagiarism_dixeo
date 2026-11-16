@@ -6,7 +6,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define(['core/ajax', 'core/str'], function(Ajax, Str) {
+define(['core/str', 'local_dixeo/network'], function(Str, Network) {
 
     var INITIAL_DELAY_MS = 3000;
     var INTERVAL_MS = 2000;
@@ -27,6 +27,9 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
     /**
      * Poll until the job is completed or failed.
      *
+     * Connection failures are retried within the retry window; past it, the poll rejects with
+     * the connection error.
+     *
      * @param {string} jobid Remote job id.
      * @param {number} courseid Course id.
      * @param {number} cmid Assign course module id.
@@ -36,6 +39,7 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
     function poll(jobid, courseid, cmid, flow) {
         var started = Date.now();
         var timedOut = false;
+        var retryWindow = Network.createRetryWindow();
 
         /**
          * Reject with the client-facing timeout string.
@@ -58,7 +62,7 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
                 return timeoutError();
             }
 
-            return Ajax.call([{
+            return Network.call({
                 methodname: 'plagiarism_dixeo_get_assign_job_status',
                 args: {
                     jobid: jobid,
@@ -66,7 +70,8 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
                     cmid: cmid,
                     flow: flow
                 }
-            }])[0].then(function(data) {
+            }, {timeout: Network.TIMEOUT_STATUS_MS}).then(function(data) {
+                retryWindow.succeeded();
                 if (!data) {
                     throw new Error('empty');
                 }
@@ -74,6 +79,11 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
                     return data;
                 }
                 return INTERVAL_MS;
+            }, function(failure) {
+                if (retryWindow.shouldRetry(failure)) {
+                    return INTERVAL_MS;
+                }
+                throw failure;
             }).then(function(resultOrDelay) {
                 if (typeof resultOrDelay === 'number') {
                     // Recursive poll after delay; nesting is required for the loop.

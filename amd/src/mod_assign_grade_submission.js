@@ -6,9 +6,9 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define(['jquery', 'core/ajax', 'core/notification', 'core/str', 'core/templates', 'core/loadingicon',
-    'plagiarism_dixeo/assign_job_poller'],
-function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
+define(['jquery', 'local_dixeo/network', 'plagiarism_dixeo/connection', 'core/notification', 'core/str',
+    'core/templates', 'core/loadingicon', 'plagiarism_dixeo/assign_job_poller'],
+function($, Network, Connection, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
 
     var LOADING_MODAL_ID = 'plagiarism_dixeo_loading_modal';
     var DRAFT_NOTICE_ID = 'plagiarism_dixeo_grade_draft_notice';
@@ -336,10 +336,12 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
     function loadDraftGrade(cmid, uid) {
         var draft = null;
 
-        return Ajax.call([{
-            methodname: 'plagiarism_dixeo_get_grade_draft',
-            args: {id: cmid, userid: uid}
-        }])[0].then(function(data) {
+        return Network.retryRead(function() {
+            return Network.call({
+                methodname: 'plagiarism_dixeo_get_grade_draft',
+                args: {id: cmid, userid: uid}
+            }, {timeout: Network.TIMEOUT_STATUS_MS});
+        }).then(function(data) {
             if (!data || !data.hasdraft) {
                 return null;
             }
@@ -507,13 +509,14 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             Str.get_string('analyzing', 'plagiarism_dixeo').then(function(analyzingMsg) {
                 return showLoadingModal(analyzingMsg);
             }).then(function() {
-                return Ajax.call([{
+                // A paid grading: sent once.
+                return Network.call({
                     methodname: 'plagiarism_dixeo_mod_assign_grade_submission',
                     args: {
                         id: cmidInt,
                         userid: parseInt(uid, 10) || 0
                     }
-                }])[0];
+                }, {timeout: Network.TIMEOUT_ACTION_MS});
             }).then(function(data) {
                 if (!data || data.status === 'failed') {
                     if (data && data.errormessage) {
@@ -541,7 +544,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller) {
             }).catch(function(err) {
                 analyzeButton.disabled = false;
                 hideLoadingModal();
-                Notification.exception(err);
+                Connection.exception(err);
             });
         });
     }

@@ -6,9 +6,10 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define(['jquery', 'core/ajax', 'core/notification', 'core/str', 'core/templates', 'core/loadingicon',
-    'plagiarism_dixeo/assign_job_poller', 'plagiarism_dixeo/quiz_timer'],
-function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, QuizTimer) {
+define(['jquery', 'core/notification', 'core/str', 'core/templates', 'core/loadingicon',
+    'plagiarism_dixeo/assign_job_poller', 'plagiarism_dixeo/quiz_timer', 'local_dixeo/network',
+    'plagiarism_dixeo/connection'],
+function($, Notification, Str, Templates, LoadingIcon, AssignJobPoller, QuizTimer, Network, Connection) {
 
     /**
      * Find the Submit assignment form: form with action mod/assign/view.php and hidden input action=submit.
@@ -263,10 +264,11 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             Str.get_string('analyzing', 'plagiarism_dixeo').then(function(analyzingMsg) {
                 return showLoadingModal(analyzingMsg);
             }).then(function() {
-                return Ajax.call([{
+                // A paid analysis: sent once.
+                return Network.call({
                     methodname: 'plagiarism_dixeo_mod_assign_pre_submission',
                     args: {id: cmid}
-                }])[0];
+                }, {timeout: Network.TIMEOUT_ACTION_MS});
             }).then(function(data) {
                 if (!data || data.status === 'failed') {
                     if (data && data.errormessage) {
@@ -294,7 +296,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             }).catch(function(err) {
                 analyzeButton.disabled = false;
                 hideLoadingModal();
-                Notification.exception(err);
+                Connection.exception(err);
             });
         });
     }
@@ -314,14 +316,16 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
         return Str.get_string('authorship_verifying', 'plagiarism_dixeo').then(function(verifyingMsg) {
             return showLoadingModal(verifyingMsg);
         }).then(function() {
-            return Ajax.call([{
+            // The handler runs the remote authorship jobs inside the request (several minutes):
+            // sent once, no client timeout.
+            return Network.call({
                 methodname: 'plagiarism_dixeo_check_authorship',
                 args: {
                     component: 'mod_assign',
                     area: 'submission',
                     id: parseInt(cmid, 10) || 0
                 }
-            }])[0];
+            }, {timeout: Network.TIMEOUT_NONE});
         }).then(function(data) {
             hideLoadingModal();
             if (data && data.status === 'failed' && data.errormessage) {
@@ -343,7 +347,7 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             return null;
         }).catch(function(err) {
             hideLoadingModal();
-            Notification.exception(err);
+            Connection.exception(err);
         });
     }
 
@@ -675,36 +679,37 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
      * @param {{recordId: number, responses: Object}} collected
      */
     function verifyAndSubmit(form, $modal, submitBtn, collected) {
-        Ajax.call([{
+        // The final, evaluated submission. The handler waits for the remote job inside the request:
+        // sent once, no client timeout.
+        Network.call({
             methodname: 'plagiarism_dixeo_verify_authorship',
             args: {
                 // Web service parameter name is snake_case.
                 // eslint-disable-next-line camelcase
                 record_id: collected.recordId,
                 responses: JSON.stringify(responseMap(collected.responses))
-            },
-            done: function(result) {
-                if (result && result.status === 'failed' && result.errormessage) {
-                    Notification.addNotification({
-                        message: result.errormessage,
-                        type: 'error'
-                    });
-                    submitBtn.disabled = false;
-                    return;
-                }
-                if (result && result.success === false) {
-                    submitBtn.disabled = false;
-                    return;
-                }
-                $modal.modal('hide');
-                submissionAuthorized = true;
-                form.submit();
-            },
-            fail: function(err) {
-                Notification.exception(err);
-                submitBtn.disabled = false;
             }
-        }]);
+        }, {timeout: Network.TIMEOUT_NONE}).then(function(result) {
+            if (result && result.status === 'failed' && result.errormessage) {
+                Notification.addNotification({
+                    message: result.errormessage,
+                    type: 'error'
+                });
+                submitBtn.disabled = false;
+                return null;
+            }
+            if (result && result.success === false) {
+                submitBtn.disabled = false;
+                return null;
+            }
+            $modal.modal('hide');
+            submissionAuthorized = true;
+            form.submit();
+            return null;
+        }).catch(function(err) {
+            Connection.exception(err);
+            submitBtn.disabled = false;
+        });
     }
 
     /**
@@ -782,8 +787,16 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
             var footer = document.createElement('div');
             footer.className = 'modal-footer plagiarism-dixeo-verification-footer';
 
+            // Announces a lost connection next to the footer timers. It lives outside the footer,
+            // which is rebuilt for every question, and never pauses or blocks the quiz.
+            var connectionNotice = document.createElement('div');
+            connectionNotice.className = 'plagiarism-dixeo-connection-notice small';
+            connectionNotice.setAttribute('role', 'status');
+            connectionNotice.setAttribute('aria-live', 'polite');
+
             content.appendChild(header);
             content.appendChild(body);
+            content.appendChild(connectionNotice);
             content.appendChild(footer);
             dialog.appendChild(content);
             modal.appendChild(dialog);
@@ -1055,6 +1068,9 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
                 onState: function() {
                     ctx.allowBackwards = false;
                     ctx.nextDelaySec = 0;
+                },
+                onConnectionChange: function(lost) {
+                    showConnectionNotice(connectionNotice, lost);
                 }
             });
 
@@ -1110,7 +1126,33 @@ function($, Ajax, Notification, Str, Templates, LoadingIcon, AssignJobPoller, Qu
         }).then(function(quiz) {
             return session.applyLoadedQuiz(quiz);
         }).catch(function(err) {
-            Notification.exception(err);
+            Connection.exception(err);
+        });
+    }
+
+    /**
+     * Show or clear the lost connection notice of the quiz.
+     *
+     * @param {HTMLElement} notice Live region of the quiz modal.
+     * @param {boolean} lost Whether the connection is lost.
+     */
+    function showConnectionNotice(notice, lost) {
+        if (!lost) {
+            notice.textContent = '';
+            return;
+        }
+        Connection.message('quiz_connection_lost').then(function(text) {
+            notice.textContent = '';
+            var icon = document.createElement('i');
+            icon.className = 'fa fa-exclamation-triangle';
+            icon.setAttribute('aria-hidden', 'true');
+            var label = document.createElement('span');
+            label.textContent = ' ' + text;
+            notice.appendChild(icon);
+            notice.appendChild(label);
+            return null;
+        }).catch(function() {
+            return null;
         });
     }
 

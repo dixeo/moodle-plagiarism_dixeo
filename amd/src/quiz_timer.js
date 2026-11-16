@@ -10,7 +10,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define(['core/ajax', 'core/str'], function(Ajax, Str) {
+define(['core/str', 'local_dixeo/network'], function(Str, Network) {
 
     /** How often answers are sent to the server and the clock is re-synced, in milliseconds. */
     var SYNC_INTERVAL = 15000;
@@ -69,6 +69,8 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
      * @param {Function} options.onExpire Called once when the server reports the quiz has closed.
      * @param {Function} [options.onQuestionExpire] Called once when the current question's time runs out.
      * @param {Function} [options.onState] Called whenever a server payload is adopted.
+     * @param {Function} [options.onConnectionChange] Called with true when a sync loses the connection,
+     *     and with false when a later sync succeeds again.
      */
     function QuizTimer(options) {
         options = options || {};
@@ -83,6 +85,10 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
         this.onExpire = options.onExpire;
         this.onQuestionExpire = options.onQuestionExpire || null;
         this.onState = options.onState || null;
+        this.onConnectionChange = options.onConnectionChange || null;
+        this.connectionLost = false;
+        // One save at a time; a save asked for meanwhile runs right after with the newest answers.
+        this.syncFlight = Network.singleFlight(this.saveProgress.bind(this), {trailing: true});
         this.remaining = null;
         this.questionRemaining = null;
         this.expired = false;
@@ -103,10 +109,11 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
      */
     QuizTimer.prototype.start = function() {
         var self = this;
-        return Ajax.call([{
+        // Starts the clock: sent once. The server returns the same session on a repeat click.
+        return Network.call({
             methodname: 'plagiarism_dixeo_start_verification',
             args: {record_id: this.recordId} // eslint-disable-line camelcase
-        }])[0].then(function(state) {
+        }, {timeout: Network.TIMEOUT_ACTION_MS}).then(function(state) {
             self.adopt(state);
             if (self.expired) {
                 return state;
@@ -145,10 +152,13 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
      */
     QuizTimer.prototype.fetchQuiz = function() {
         var self = this;
-        return Ajax.call([{
-            methodname: 'plagiarism_dixeo_get_verification_quiz',
-            args: {record_id: this.recordId} // eslint-disable-line camelcase
-        }])[0].then(function(quiz) {
+        var recordId = this.recordId;
+        return Network.retryRead(function() {
+            return Network.call({
+                methodname: 'plagiarism_dixeo_get_verification_quiz',
+                args: {record_id: recordId} // eslint-disable-line camelcase
+            }, {timeout: Network.TIMEOUT_STATUS_MS});
+        }).then(function(quiz) {
             self.adopt(quiz);
             return quiz;
         });
@@ -301,13 +311,40 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
      * @returns {Promise<object|null>} The saved state, or null when the sync could not run.
      */
     QuizTimer.prototype.sync = function() {
+        if (this.stopped) {
+            return Promise.resolve(null);
+        }
+        return this.syncFlight();
+    };
+
+    /**
+     * Report a change of the connection state of the syncs.
+     *
+     * @param {boolean} lost Whether the last sync lost the connection.
+     */
+    QuizTimer.prototype.setConnectionLost = function(lost) {
+        if (this.connectionLost === lost) {
+            return;
+        }
+        this.connectionLost = lost;
+        if (this.onConnectionChange) {
+            this.onConnectionChange(lost);
+        }
+    };
+
+    /**
+     * Save the answers once. The save overwrites the stored answers, so a later save repeats it safely.
+     *
+     * @returns {Promise<object|null>} The saved state, or null when the sync could not run.
+     */
+    QuizTimer.prototype.saveProgress = function() {
         var self = this;
         if (this.stopped) {
             return Promise.resolve(null);
         }
         this.bankFocusTime();
 
-        return Ajax.call([{
+        return Network.call({
             methodname: 'plagiarism_dixeo_save_verification_progress',
             args: {
                 record_id: this.recordId, // eslint-disable-line camelcase
@@ -315,11 +352,15 @@ define(['core/ajax', 'core/str'], function(Ajax, Str) {
                 timings: JSON.stringify(this.timings),
                 current_index: this.getCurrentIndex() // eslint-disable-line camelcase
             }
-        }])[0].then(function(state) {
+        }, {timeout: Network.TIMEOUT_STATUS_MS}).then(function(state) {
+            self.setConnectionLost(false);
             self.adopt(state);
             return state;
-        }).catch(function() {
+        }).catch(function(failure) {
             // A failed sync is not fatal: the server clock still governs, and the next sync retries.
+            if (Network.isConnectionError(failure)) {
+                self.setConnectionLost(true);
+            }
             return null;
         });
     };
